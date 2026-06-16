@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Açar🔐 Clone</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+<script>
+tailwind.config = { darkMode: 'class' }
+</script>
+<style>
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif; }
+  .modal { display:none; position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.6); align-items:center; justify-content:center; }
+  .modal.active { display:flex; }
+  .modal-box { background:#1f2937; color:#f3f4f6; padding:24px; border-radius:12px; max-width:640px; width:90%; max-height:90vh; overflow:auto; }
+  .light .modal-box { background:#fff; color:#111827; border:1px solid #e5e7eb; }
+  .table-row:hover { background:rgba(255,255,255,.04); }
+  .light .table-row:hover { background:rgba(0,0,0,.04); }
+  .dragging { opacity: .5; }
+  .drag-over { border-top: 2px solid #6366f1; }
+  @media (max-width: 768px) {
+    .hide-mobile { display:none; }
+    .card-mobile { display:block; border:1px solid #374151; border-radius:8px; padding:12px; margin-bottom:8px; }
+    .light .card-mobile { border-color:#e5e7eb; }
+  }
+  @media (min-width: 769px) {
+    .card-mobile { display:none; }
+  }
+</style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen transition-colors duration-300">
+<div id="app"></div>
+
+<script>
+const API = location.origin + '/api';
+let state = { page: 'login', user: null, keys: [], sources: [], servers: [], modal: null, toast: null, dark: true };
+
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+
+async function api(method, endpoint, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(API + endpoint, opts);
+  if (res.status === 401) { state.user = null; render(); }
+  if (!res.ok) { const err = await res.json().catch(()=>null); throw new Error(err?.detail || res.statusText); }
+  return res.status === 204 ? null : res.json();
+}
+
+function navigate(page) { state.page = page; render(); }
+
+function render() {
+  const app = $('#app');
+  if (!state.user) { app.innerHTML = loginPage(); return; }
+  if (state.page === 'dashboard') { app.innerHTML = dashboardPage(); initDashboard(); }
+  else if (state.page === 'sources') { app.innerHTML = sourcesPage(); initSources(); }
+  else if (state.page === 'servers') { app.innerHTML = serversPage(); initServers(); }
+  else if (state.page === 'settings') { app.innerHTML = settingsPage(); initSettings(); }
+  else if (state.page === 'admin' && state.user.is_admin) { app.innerHTML = adminPage(); initAdmin(); }
+  else { navigate('dashboard'); }
+}
+
+/* ---- Theme ---- */
+function toggleTheme() {
+  state.dark = !state.dark;
+  document.documentElement.classList.toggle('dark', state.dark);
+  document.documentElement.classList.toggle('light', !state.dark);
+  document.body.classList.toggle('bg-gray-950', state.dark);
+  document.body.classList.toggle('text-gray-100', state.dark);
+  document.body.classList.toggle('bg-gray-50', !state.dark);
+  document.body.classList.toggle('text-gray-900', !state.dark);
+  localStorage.setItem('rp_theme', state.dark ? 'dark' : 'light');
+}
+function loadTheme() {
+  const t = localStorage.getItem('rp_theme');
+  if (t === 'light') toggleTheme();
+}
+
+/* ---- Auth ---- */
+function loginPage() {
+  return `<div class="min-h-screen flex items-center justify-center p-4 ${state.dark?'bg-gray-950':'bg-gray-50'}">
+    <div class="w-full max-w-sm bg-gray-900/80 border border-gray-800 rounded-2xl p-6 shadow-xl ${state.dark?'':'bg-white border-gray-200'}">
+      <h1 class="text-2xl font-bold text-center mb-6">Açar🔐</h1>
+      <div id="loginError" class="hidden mb-3 text-sm text-red-400 bg-red-950/40 border border-red-900 rounded px-3 py-2"></div>
+      <form id="loginForm" class="space-y-4">
+        <input name="username" placeholder="Логин" autocomplete="off" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:border-indigo-500">
+        <input name="password" type="password" placeholder="Пароль" autocomplete="new-password" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:border-indigo-500">
+        <button class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg px-3 py-2">Войти</button>
+      </form>
+      <p class="text-center text-xs text-gray-500 mt-4">Нет аккаунта? <a href="#" onclick="showRegister()" class="text-indigo-400 hover:underline">Регистрация</a></p>
+    </div>
+  </div>`;
+}
+
+function showRegister() {
+  const box = document.createElement('div');
+  box.innerHTML = `<div class="modal active" id="regModal"><div class="modal-box">
+    <h2 class="text-xl font-bold mb-4">Регистрация</h2>
+    <div id="regError" class="hidden mb-3 text-sm text-red-400 bg-red-950/40 border border-red-900 rounded px-3 py-2"></div>
+    <form id="regForm" class="space-y-3">
+      <input name="username" placeholder="Логин" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
+      <input name="password" type="password" placeholder="Пароль (мин. 6)" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
+      <div class="flex justify-end gap-2 mt-2">
+        <button type="button" onclick="document.getElementById('regModal').remove()" class="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600">Отмена</button>
+        <button class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500">Создать</button>
+      </div>
+    </form>
+  </div></div>`;
+  document.body.appendChild(box);
+  $('#regForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      const fd = new FormData(e.target);
+      await api('POST', '/auth/register', { username: fd.get('username'), password: fd.get('password') });
+      document.getElementById('regModal').remove();
+      toast('Аккаунт создан. Войдите.');
+    } catch(err) { $('#regError').textContent = err.message; $('#regError').classList.remove('hidden'); }
+  });
+}
+
+/* ---- Layout ---- */
+function layout(inner) {
+  const adminLink = state.user.is_admin ? `<a href="#" onclick="navigate('admin')" class="${state.page==='admin'?'text-indigo-400':'text-gray-300 hover:text-white'}">Админ</a>` : '';
+  return `<div class="min-h-screen ${state.dark?'bg-gray-950 text-gray-100':'bg-gray-50 text-gray-900'}">
+    <header class="border-b ${state.dark?'border-gray-800 bg-gray-900/60':'border-gray-200 bg-white/80'} backdrop-blur sticky top-0 z-40">
+      <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-sm">R</div>
+          <span class="font-semibold">Açar🔐</span>
+        </div>
+        <nav class="flex items-center gap-4 text-sm">
+          <a href="#" onclick="navigate('dashboard')" class="${state.page==='dashboard'?'text-indigo-400':'text-gray-300 hover:text-white'}">Ключи</a>
+          <a href="#" onclick="navigate('sources')" class="${state.page==='sources'?'text-indigo-400':'text-gray-300 hover:text-white'}">Источники</a>
+          <a href="#" onclick="navigate('servers')" class="${state.page==='servers'?'text-indigo-400':'text-gray-300 hover:text-white'}">Серверы</a>
+          <a href="#" onclick="navigate('settings')" class="${state.page==='settings'?'text-indigo-400':'text-gray-300 hover:text-white'}">Настройки</a>
+          ${adminLink}
+          <button onclick="toggleTheme()" class="text-gray-400 hover:text-white" title="Тема">◐</button>
+          <button onclick="logout()" class="text-gray-400 hover:text-white">Выйти</button>
+        </nav>
+      </div>
+    </header>
+    <main class="max-w-6xl mx-auto px-4 py-6">${inner}</main>
+  </div>`;
+}
+
+/* ---- Dashboard ---- */
+function dashboardPage() {
+  return layout(`
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold">Ключи клиентов</h2>
+      <button onclick="openKeyModal()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-lg text-sm font-medium">+ Добавить ключ</button>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" id="statsCards"></div>
+    <div class="flex gap-2 mb-4">
+      <input id="searchKeys" placeholder="Поиск по имени..." class="bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm w-64 ${state.dark?'':'bg-white border-gray-200'}" oninput="searchKeys()">
+    </div>
+    <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden ${state.dark?'':'bg-white border-gray-200'}">
+      <table class="w-full text-sm text-left hide-mobile">
+        <thead class="${state.dark?'bg-gray-800/50':'bg-gray-100'} text-gray-400 text-xs uppercase">
+          <tr><th class="px-4 py-3">Имя</th><th class="px-4 py-3">Токен</th><th class="px-4 py-3">Лимит</th><th class="px-4 py-3">Статус</th><th class="px-4 py-3 text-right">Действия</th></tr>
+        </thead>
+        <tbody id="keysTable" class="divide-y ${state.dark?'divide-gray-800':'divide-gray-100'}"></tbody>
+      </table>
+      <div id="keysCards" class="p-2"></div>
+      <div id="keysPager" class="flex items-center justify-between px-4 py-3 border-t ${state.dark?'border-gray-800':'border-gray-200'} text-xs text-gray-400"></div>
+    </div>
+    <div id="modal"></div>
+  `);
+}
+
+async function initDashboard() {
+  await loadKeys(1);
+  try {
+    const stats = await api('GET','/dealer/stats');
+    $('#statsCards').innerHTML = `
+      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Ключей</div><div class="text-xl font-bold">${stats.total_keys}</div></div>
+      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Активных</div><div class="text-xl font-bold text-emerald-400">${stats.active_keys}</div></div>
+      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Источников</div><div class="text-xl font-bold">${stats.total_sources}</div></div>
+      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Серверов</div><div class="text-xl font-bold">${stats.total_servers}</div></div>
+    `;
+  } catch(e){}
+}
+
+let keyPage = 1, keyQ = '';
+async function loadKeys(page) {
+  keyPage = page;
+  try {
+    const res = await api('GET', `/dealer/keys?page=${page}&limit=15&q=${encodeURIComponent(keyQ)}`);
+    state.keys = res;
+    renderKeysTable(res);
+    renderKeysCards(res);
+  } catch(err) { toast(err.message); }
+}
+function searchKeys() { keyQ = $('#searchKeys').value; loadKeys(1); }
+
+function renderKeysTable(data) {
+  const tbody = $('#keysTable');
+  const pager = $('#keysPager');
+  if (!data.items.length) { tbody.innerHTML = `<tr><td colspan="5" class="px-4 py-6 text-center text-gray-500">Нет ключей</td></tr>`; pager.innerHTML = ''; return; }
+  tbody.innerHTML = data.items.map(k => rowHtml(k)).join('');
+  pager.innerHTML = `Стр. ${data.page} из ${data.pages} (всего ${data.total}) <div class="flex gap-2">${Array.from({length:data.pages},(_,i)=>`<button onclick="loadKeys(${i+1})" class="px-2 py-1 rounded ${i+1===data.page?'bg-indigo-600 text-white':'bg-gray-800 hover:bg-gray-700'}">${i+1}</button>`).join('')}</div>`;
+}
+function renderKeysCards(data) {
+  const el = $('#keysCards');
+  if (!data.items.length) { el.innerHTML = '<div class="text-gray-500 text-center py-4">Нет ключей</div>'; return; }
+  el.innerHTML = data.items.map(k => `
+    <div class="card-mobile ${state.dark?'bg-gray-900 border-gray-700':'bg-white border-gray-200'}">
+      <div class="flex justify-between"><span class="font-medium">${esc(k.client_name)}</span>${statusBadge(k)}</div>
+      <div class="text-xs text-gray-400 font-mono mt-1">${k.token}</div>
+      <div class="text-xs text-gray-500 mt-1">Лимит: ${k.device_limit}</div>
+      <div class="flex gap-2 mt-2">
+        <button onclick="resetKey(${k.id})" class="text-xs text-gray-400">Сброс</button>
+        <button onclick="editKey(${k.id})" class="text-xs text-indigo-400">Изм</button>
+        <button onclick="showDevices(${k.id})" class="text-xs text-indigo-400">Устр</button>
+        <button onclick="showQr('${location.origin}/sub/${k.token}')" class="text-xs text-indigo-400">QR</button>
+        <button onclick="deleteKey(${k.id})" class="text-xs text-red-400">Удал</button>
+      </div>
+    </div>
+  `).join('');
+}
+function statusBadge(k) {
+  if (!k.is_active) return '<span class="text-red-400 text-xs">Отключен</span>';
+  if (k.expires_at && new Date(k.expires_at) < new Date()) return '<span class="text-orange-400 text-xs">Просрочен</span>';
+  return '<span class="text-emerald-400 text-xs">Активен</span>';
+}
+function rowHtml(k) {
+  const url = location.origin + '/sub/' + k.token;
+  return `<tr class="table-row">
+    <td class="px-4 py-3">${esc(k.client_name)}</td>
+    <td class="px-4 py-3 font-mono text-xs text-gray-400">${k.token}
+      <button onclick="copyText('${url}')" class="ml-2 text-indigo-400 hover:text-indigo-300">копир</button>
+    </td>
+    <td class="px-4 py-3">${k.device_limit}</td>
+    <td class="px-4 py-3">${statusBadge(k)}</td>
+    <td class="px-4 py-3 text-right">
+      <button onclick="resetKey(${k.id})" class="text-gray-400 hover:text-white mr-2 text-xs">Сброс</button>
+      <button onclick="editKey(${k.id})" class="text-indigo-400 hover:text-indigo-300 mr-2 text-xs">Изм</button>
+      <button onclick="showDevices(${k.id})" class="text-indigo-400 hover:text-indigo-300 mr-2 text-xs">Устр</button>
+      <button onclick="showQr('${url}')" class="text-indigo-400 hover:text-indigo-300 mr-2 text-xs">QR</button>
+      <button onclick="deleteKey(${k.id})" class="text-red-400 hover:text-red-300 text-xs">Удал</button>
+    </td>
+  </tr>`;
+}
+
+function openKeyModal(key) {
+  const isEdit = !!key;
+  const expVal = key?.expires_at ? new Date(key.expires_at).toISOString().slice(0,10) : '';
+  const html = `<div class="modal active" id="keyModal"><div class="modal-box">
+    <h2 class="text-xl font-bold mb-4">${isEdit?'Редактировать':'Создать'} ключ</h2>
+    <form id="keyForm" class="space-y-3">
+      <input name="client_name" placeholder="Имя клиента" value="${esc(key?.client_name||'')}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
+      <input name="device_limit" type="number" placeholder="Лимит устройств" value="${key?.device_limit||3}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
+      <input name="expires_at" type="date" placeholder="Срок (не обязательно)" value="${expVal}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="is_active" ${key?.is_active!==false?'checked':''}> Активен</label>
+      <div class="flex justify-end gap-2 mt-4">
+        <button type="button" onclick="document.getElementById('keyModal').remove()" class="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600">Отмена</button>
+        <button class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500">${isEdit?'Сохранить':'Создать'}</button>
+      </div>
+    </form>
+  </div></div>`;
+  $('#modal').innerHTML = html;
+  $('#keyForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const body = {
+      client_name: fd.get('client_name'),
+      device_limit: parseInt(fd.get('device_limit')),
+      is_active: !!fd.get('is_active'),
+    };
+    const exp = fd.get('expires_at');
+    if (exp) body.expires_at = new Date(exp + 'T23:59:59').toISOString();
+    try {
+      if (isEdit) await api('PATCH', `/dealer/keys/${key.id}`, body);
+      else await api('POST', '/dealer/keys', body);
+      document.getElementById('keyModal').remove();
+      loadKeys(keyPage);
+      toast(isEdit?'Сохранено':'Ключ создан');
+    } catch(err) { toast(err.message); }
+  });
+}
+
+async function resetKey(id) {
+  if (!confirm('Сбросить привязки устройств и HWID?')) return;
+  try {
+    await api('POST', `/dealer/keys/${id}/reset`, { reset_bindings: true, reset_hwid: true });
+    toast('Привязки сброшены');
+  } catch(err) { toast(err.message); }
+}
+function editKey(id) { const k = state.keys.items.find(x=>x.id===id); if(k) openKeyModal(k); }
+async function deleteKey(id) {
+  if (!confirm('Удалить ключ?')) return;
+  try { await api('DELETE', `/dealer/keys/${id}`); loadKeys(keyPage); toast('Удалено'); }
+  catch(err) { toast(err.message); }
+}
+async function showDevices(keyId) {
+  try {
+    const res = await api('GET', `/dealer/keys/${keyId}/devices`);
+    const list = res.devices.map(d => `<div class="text-xs border-b ${state.dark?'border-gray-700':'border-gray-200'} py-2"><div class="font-mono">${esc(d.ip)}</div><div class="text-gray-500">${esc(d.user_agent||'').slice(0,60)}</div><div class="text-gray-500">HWID: ${esc(d.hwid||'—')} • ${new Date(d.last_seen).toLocaleString()}</div></div>`).join('') || '<div class="text-gray-500 text-xs">Нет устройств</div>';
+    $('#modal').innerHTML = `<div class="modal active" id="devModal"><div class="modal-box"><h3 class="font-bold mb-2">Привязанные устройства</h3>${list}<div class="mt-4 text-right"><button onclick="document.getElementById('devModal').remove()" class="px-3 py-2 rounded bg-gray-700">Закрыть</button></div></div></div>`;
+  } catch(e) { toast(e.message); }
+}
+function showQr(url) {
+  $('#modal').innerHTML = `<div class="modal active" id="qrModal"><div class="modal-box text-center"><h3 class="font-bold mb-2">QR-код подписки</h3><canvas id="qrCanvas"></canvas><div class="mt-2 text-xs text-gray-400 break-all">${esc(url)}</div><div class="mt-4"><button onclick="document.getElementById('qrModal').remove()" class="px-3 py-2 rounded bg-gray-700">Закрыть</button></div></div></div>`;
+  setTimeout(() => new QRious({element: document.getElementById('qrCanvas'), value: url, size: 200 }), 50);
+}
+
+/* ---- Sources ---- */
+function sourcesPage() {
+  return layout(`
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold">Unlimited-источники</h2>
+      <button onclick="openSourceModal()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-lg text-sm font-medium">+ Добавить</button>
+    </div>
+    <div id="sourcesList" class="space-y-3"></div>
+    <div id="modal"></div>
+  `);
+}
+async function initSources() {
+  try { const list = await api('GET','/dealer/sources'); state.sources = list; renderSources(); } catch(e){ toast(e.message); }
+}
+function renderSources() {
+  const el = $('#sourcesList');
+  if (!state.sources.length) { el.innerHTML = '<p class="text-gray-500">Нет источников</p>'; return; }
+  el.innerHTML = state.sources.map(s => `
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-center justify-between ${state.dark?'':'bg-white border-gray-200'}">
+      <div>
+        <div class="font-medium">${esc(s.name)}</div>
+        <div class="text-xs text-gray-400 font-mono mt-1">${esc(s.url.substring(0,80))}...</div>
+        <div class="text-xs text-gray-500 mt-1">${s.is_active?'Активен':'Отключен'} • Обновлен: ${s.last_fetched_at ? new Date(s.last_fetched_at).toLocaleString() : '—'}</div>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="fetchSourceNow(${s.id})" class="text-sm text-indigo-400 hover:text-indigo-300 mr-2">Обновить сейчас</button>
+        <button onclick="deleteSource(${s.id})" class="text-sm text-red-400 hover:text-red-300">Удалить</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function fetchSourceNow(id) {
+  try { await api('POST', `/dealer/sources/${id}/fetch`); toast('Обновление запущено... Серверы появятся через 10-30 секунд.'); setTimeout(() => initSources(), 3000); }
+  catch(e){ toast(e.message); }
+}
+function openSourceModal() {
+  $('#modal').innerHTML = `<div class="modal active" id="srcModal"><div class="modal-box">
+    <h2 class="text-xl font-bold mb-4">Добавить источник</h2>
+    <form id="srcForm" class="space-y-3">
+      <input name="name" placeholder="Название" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
+      <input name="url" placeholder="URL подписки (https://...)" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
+      <div class="flex justify-end gap-2 mt-4">
+        <button type="button" onclick="document.getElementById('srcModal').remove()" class="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600">Отмена</button>
+        <button class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500">Добавить</button>
+      </div>
+    </form>
+  </div></div>`;
+  $('#srcForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api('POST','/dealer/sources', { name: fd.get('name'), url: fd.get('url') });
+      document.getElementById('srcModal').remove();
+      initSources();
+      toast('Источник добавлен');
+    } catch(err) { toast(err.message); }
+  });
+}
+async function deleteSource(id) { if(!confirm('Удалить?')) return; try { await api('DELETE',`/dealer/sources/${id}`); initSources(); } catch(e){ toast(e.message); } }
+
+/* ---- Servers ---- */
+function serversPage() {
+  return layout(`
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold">Серверы</h2>
+      <button onclick="saveOrder()" id="saveOrderBtn" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-sm font-medium">Сохранить порядок</button>
+    </div>
+    <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden ${state.dark?'':'bg-white border-gray-200'}">
+      <table class="w-full text-sm text-left">
+        <thead class="${state.dark?'bg-gray-800/50':'bg-gray-100'} text-gray-400 text-xs uppercase"><tr><th class="px-4 py-3 w-8"></th><th class="px-4 py-3">Хост</th><th class="px-4 py-3">Протокол</th><th class="px-4 py-3">Приоритет</th><th class="px-4 py-3">Кастомное имя</th><th class="px-4 py-3">Статус</th></tr></thead>
+        <tbody id="srvTable" class="divide-y ${state.dark?'divide-gray-800':'divide-gray-100'}"></tbody>
+      </table>
+    </div>
+  `);
+}
+async function initServers() {
+  try { const list = await api('GET','/dealer/servers'); state.servers = list; renderServers(); } catch(e){ toast(e.message); }
+}
+function renderServers() {
+  const tbody = $('#srvTable');
+  if (!state.servers.length) { tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-6 text-center text-gray-500">Нет серверов</td></tr>`; return; }
+  tbody.innerHTML = state.servers.map((s, idx) => `
+    <tr class="table-row" draggable="true" data-id="${s.id}" data-priority="${s.priority}">
+      <td class="px-4 py-3 cursor-move text-gray-500 select-none">⋮⋮</td>
+      <td class="px-4 py-3">${esc(s.host)}:${s.port}</td>
+      <td class="px-4 py-3 uppercase">${s.protocol}</td>
+      <td class="px-4 py-3 priority-cell">${s.priority}</td>
+      <td class="px-4 py-3"><input onchange="updateServer(${s.id},'custom_name',this.value)" value="${esc(s.custom_name||'')}" class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs w-full"></td>
+      <td class="px-4 py-3">
+        <label class="inline-flex items-center gap-2"><input type="checkbox" onchange="updateServer(${s.id},'is_active',this.checked)" ${s.is_active?'checked':''}> Вкл</label>
+      </td>
+    </tr>
+  `).join('');
+  setupDragAndDrop();
+}
+function setupDragAndDrop() {
+  let dragged = null;
+  $$('#srvTable tr').forEach(tr => {
+    tr.addEventListener('dragstart', () => { dragged = tr; tr.classList.add('dragging'); });
+    tr.addEventListener('dragend', () => { tr.classList.remove('dragging'); $('#saveOrderBtn').classList.remove('hidden'); });
+    tr.addEventListener('dragover', e => {
+      e.preventDefault();
+      const after = getDragAfter(e.clientY);
+      const tbody = $('#srvTable');
+      if (after == null) tbody.appendChild(dragged); else tbody.insertBefore(dragged, after);
+    });
+  });
+}
+function getDragAfter(y) {
+  const rows = [...$$('#srvTable tr:not(.dragging)')];
+  return rows.reduce((closest, child) => {
+    const box = child.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > closest.offset) return { offset: offset, element: child };
+    return closest;
+  }, { offset: Number.NEGATIVE_INFINITY }).element;
+}
+async function saveOrder() {
+  const rows = $$('#srvTable tr');
+  const items = rows.map((tr, idx) => ({ id: parseInt(tr.dataset.id), priority: idx }));
+  try { await api('POST','/dealer/servers/reorder', items); toast('Порядок сохранен'); $('#saveOrderBtn').classList.add('hidden'); initServers(); }
+  catch(e){ toast(e.message); }
+}
+async function updateServer(id, field, value) {
+  try { await api('PATCH', `/dealer/servers/${id}`, { [field]: value }); toast('Сохранено'); }
+  catch(e){ toast(e.message); }
+}
+
+/* ---- Settings ---- */
+function settingsPage() {
+  return layout(`
+    <h2 class="text-lg font-semibold mb-4">Настройки профиля</h2>
+    <form id="settingsForm" class="max-w-xl bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4 ${state.dark?'':'bg-white border-gray-200'}">
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Заголовок подписки</label>
+        <input name="profile_title" value="${esc(state.user.profile_title||'')}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Объявление (поддерживается {USERNAME})</label>
+        <textarea name="announcement" rows="3" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">${esc(state.user.announcement||'')}</textarea>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Шаблон имени сервера</label>
+        <input name="server_name_template" value="${esc(state.user.server_name_template||'')}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
+        <div class="text-xs text-gray-500 mt-1">Переменные: {USERNAME}, {NUMBER}</div>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Happ API Key (опционально, шифрование подписок)</label>
+        <input name="happ_api_key" type="password" value="${esc(state.user.happ_api_key||'')}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2" placeholder="happ_...">
+      </div>
+      <button class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium">Сохранить</button>
+    </form>
+  `);
+}
+async function initSettings() {
+  $('#settingsForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      const user = await api('PATCH', '/dealer/me', {
+        profile_title: fd.get('profile_title'),
+        announcement: fd.get('announcement'),
+        server_name_template: fd.get('server_name_template'),
+        happ_api_key: fd.get('happ_api_key'),
+      });
+      state.user = user;
+      toast('Настройки сохранены');
+    } catch(err) { toast(err.message); }
+  });
+}
+
+/* ---- Admin ---- */
+function adminPage() {
+  return layout(`
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold">Администрирование</h2>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" id="adminStats"></div>
+    <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden ${state.dark?'':'bg-white border-gray-200'}">
+      <table class="w-full text-sm text-left">
+        <thead class="${state.dark?'bg-gray-800/50':'bg-gray-100'} text-gray-400 text-xs uppercase"><tr><th class="px-4 py-3">ID</th><th class="px-4 py-3">Логин</th><th class="px-4 py-3">Дилер</th><th class="px-4 py-3">Статус</th><th class="px-4 py-3 text-right">Действия</th></tr></thead>
+        <tbody id="adminUsers" class="divide-y ${state.dark?'divide-gray-800':'divide-gray-100'}"></tbody>
+      </table>
+    </div>
+  `);
+}
+async function initAdmin() {
+  try {
+    const stats = await api('GET','/admin/stats');
+    $('#adminStats').innerHTML = `
+      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Пользователей</div><div class="text-xl font-bold">${stats.total_users}</div></div>
+      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Дилеров</div><div class="text-xl font-bold">${stats.total_dealers}</div></div>
+      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Ключей</div><div class="text-xl font-bold">${stats.total_keys}</div></div>
+      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Серверов</div><div class="text-xl font-bold">${stats.total_servers}</div></div>
+    `;
+  } catch(e){}
+  try {
+    const users = await api('GET','/admin/users');
+    $('#adminUsers').innerHTML = users.map(u => `
+      <tr class="table-row">
+        <td class="px-4 py-3">${u.id}</td>
+        <td class="px-4 py-3">${esc(u.username)}</td>
+        <td class="px-4 py-3">${u.is_dealer?'✅':'—'}</td>
+        <td class="px-4 py-3">${u.is_active?'<span class="text-emerald-400">Активен</span>':'<span class="text-red-400">Отключен</span>'}</td>
+        <td class="px-4 py-3 text-right">
+          <button onclick="toggleUser(${u.id})" class="text-xs text-indigo-400 mr-2">${u.is_active?'Блок':'Актив'}</button>
+          <button onclick="deleteUser(${u.id})" class="text-xs text-red-400">Удал</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch(e){ toast(e.message); }
+}
+async function toggleUser(id) {
+  try { await api('PATCH', `/admin/users/${id}/toggle`); initAdmin(); toast('Статус изменен'); } catch(e){ toast(e.message); }
+}
+async function deleteUser(id) {
+  if (!confirm('Удалить пользователя?')) return;
+  try { await api('DELETE', `/admin/users/${id}`); initAdmin(); toast('Удалено'); } catch(e){ toast(e.message); }
+}
+
+/* ---- Utils ---- */
+function logout() {
+  api('POST','/auth/logout').then(() => { state.user = null; navigate('login'); }).catch(() => { state.user = null; navigate('login'); });
+}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+function copyText(t) { navigator.clipboard.writeText(t); toast('Скопировано'); }
+function toast(msg) {
+  const el = document.createElement('div');
+  el.className = 'fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg border border-gray-700 z-50';
+  el.textContent = msg; document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2500);
+}
+
+async function init() {
+  loadTheme();
+  try {
+    const user = await api('GET','/dealer/me');
+    state.user = user; navigate('dashboard');
+  } catch(e) { render(); }
+}
+
+/* ---- Events ---- */
+document.addEventListener('submit', async e => {
+  if (e.target.id === 'loginForm') {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api('POST','/auth/login', { username: fd.get('username'), password: fd.get('password') });
+      const user = await api('GET','/dealer/me');
+      state.user = user; navigate('dashboard');
+    } catch(err) { const el=$('#loginError'); el.textContent=err.message; el.classList.remove('hidden'); }
+  }
+});
+
+init();
+</script>
+</body>
+</html>

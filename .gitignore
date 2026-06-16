@@ -1,0 +1,31 @@
+# Database & secrets
+data/
+*.db
+*.db-journal
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv
+venv/
+.venv_libs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.tar.gz
+
+# Logs
+*.log

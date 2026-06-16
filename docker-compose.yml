@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: acar_api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./data/relaxpanel.db
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=super-secret-key-change-in-production
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - FIRST_ADMIN_USERNAME=${FIRST_ADMIN_USERNAME:-admin}
+      - FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD:-changeme}
+      - HAPP_API_URL=${HAPP_API_URL:-https://happ.su/api/encrypt}
+    volumes:
+      - ./data:/app/data
+      - ./app:/app/app
+    depends_on:
+      - redis
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build: .
+    container_name: acar_worker
+    environment:
+      - DATABASE_URL=sqlite:///./data/relaxpanel.db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - SECRET_KEY=super-secret-key-change-in-production
+    volumes:
+      - ./data:/app/data
+      - ./app:/app/app
+    depends_on:
+      - redis
+    command: celery -A app.celery_worker worker -B -l info
+
+  redis:
+    image: redis:7-alpine
+    container_name: acar_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: acar_tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://app:8000
+    depends_on:
+      - app
+    # Опционально: привязать к имени туннеля (если хотите постоянный URL)
+    # environment:
+    #   - TUNNEL_TOKEN=your_token_here
+    # command: tunnel run
+
+  nginx:
+    image: nginx:alpine
+    container_name: acar_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - app
