@@ -531,7 +531,36 @@ function logout() {
   api('POST','/auth/logout').then(() => { state.user = null; navigate('login'); }).catch(() => { state.user = null; navigate('login'); });
 }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
-function copyText(t) { navigator.clipboard.writeText(t); toast('Скопировано'); }
+function copyText(t) {
+  // Try modern Clipboard API (requires HTTPS)
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t).then(() => {
+      toast('Скопировано');
+    }).catch(() => {
+      // Fallback if permission denied or insecure context
+      fallbackCopy(t);
+    });
+  } else {
+    // Fallback for HTTP or older browsers
+    fallbackCopy(t);
+  }
+}
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  ta.style.top = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+    toast('Скопировано');
+  } catch(e) {
+    toast('Не удалось скопировать. Выделите вручную.');
+  }
+  document.body.removeChild(ta);
+}
 function toast(msg) {
   const el = document.createElement('div');
   el.className = 'fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg border border-gray-700 z-50';

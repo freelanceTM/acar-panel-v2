@@ -33,30 +33,40 @@ def _redis_or_fallback():
 # --- Device tracking (structured) ---
 
 def cache_device_hit_structured(token: str, ip: str, user_agent: str, hwid: str = "", ttl_seconds: int = 900):
+    """Регистрирует обращение к подписке.
+    
+    Устройства считаются по IP-адресу — это самый надёжный способ:
+    - Один клиент с разными версиями VPN-приложения = 1 устройство ✅
+    - Один клиент с разными User-Agent = 1 устройство ✅
+    - Разные клиенты за разными IP = разные устройства ✅
+    
+    При каждом обращении обновляется User-Agent и HWID (метаданные),
+    чтобы в панели отображалась актуальная информация.
+    """
     r, fallback = _redis_or_fallback()
+    device_key = f"dev_struct:{token}"
+    device_id = _device_id(ip)  # Только IP!
+    now = datetime.utcnow().isoformat()
+    
     if fallback:
-        key = f"dev_struct:{token}"
-        now = datetime.utcnow().isoformat()
-        device_id = _device_id(ip, user_agent)
-        if key not in _fallback_devices:
-            _fallback_devices[key] = {}
-        _fallback_devices[key][device_id] = {
+        if device_key not in _fallback_devices:
+            _fallback_devices[device_key] = {}
+        # Обновляем или создаём запись по IP
+        _fallback_devices[device_key][device_id] = {
             "ip": ip, "user_agent": user_agent, "hwid": hwid,
             "last_seen": now
         }
-        return len(_fallback_devices[key])
-
-    key = f"dev_struct:{token}"
-    device_id = _device_id(ip, user_agent)
+        return len(_fallback_devices[device_key])
+    
     payload = json.dumps({
         "ip": ip,
         "user_agent": user_agent,
         "hwid": hwid,
-        "last_seen": datetime.utcnow().isoformat(),
+        "last_seen": now,
     }, ensure_ascii=False)
-    r.hset(key, device_id, payload)
-    r.expire(key, ttl_seconds)
-    return r.hlen(key)
+    r.hset(device_key, device_id, payload)
+    r.expire(device_key, ttl_seconds)
+    return r.hlen(device_key)
 
 def get_device_structured_list(token: str) -> list[dict]:
     r, fallback = _redis_or_fallback()
@@ -134,6 +144,32 @@ def delete_subscription_cache(token: str):
         return
     r.delete(f"sub_cache:{token}")
 
-def _device_id(ip: str, ua: str) -> str:
+def get_real_ip(request=None) -> str:
+    """Получает реальный IP клиента из-за прокси (Nginx, Cloudflare)."""
+    if request is None:
+        return "unknown"
+    # Cloudflare
+    cf = request.headers.get("cf-connecting-ip")
+    if cf:
+        return cf.split(",")[0].strip()
+    # X-Forwarded-For (Nginx)
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    # X-Real-IP
+    xri = request.headers.get("x-real-ip")
+    if xri:
+        return xri.strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _device_id(ip: str) -> str:
+    """Уникальный ID устройства на основе IP-адреса.
+    
+    IP — самый стабильный идентификатор:
+    - User-Agent меняется при обновлении VPN-клиента
+    - HWID не всегда передаётся
+    - Только IP остаётся постоянным для одного устройства
+    """
     import hashlib
-    return hashlib.sha256(f"{ip}::{ua}".encode()).hexdigest()[:16]
+    return hashlib.sha256(ip.encode()).hexdigest()[:16]

@@ -21,5 +21,9 @@ celery_app.conf.update(
             "task": "app.tasks.fetch_all_sources",
             "schedule": 300.0,  # every 5 minutes
         },
+        "deactivate-expired-keys": {
+            "task": "app.tasks.deactivate_expired_keys",
+            "schedule": 600.0,  # every 10 minutes — чистим просроченные ключи
+        },
     },
 )

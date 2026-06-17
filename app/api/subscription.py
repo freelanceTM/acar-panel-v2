@@ -11,6 +11,7 @@ from app.redis_client import (
     get_cached_subscription,
     cache_subscription,
     delete_subscription_cache,
+    get_real_ip,
 )
 from app.happ_crypt import encrypt_subscription
 from app.rate_limit import limiter
@@ -52,7 +53,7 @@ def get_subscription(
         db.commit()
 
     # Device limit check (structured)
-    ip = request.client.host if request.client else "unknown"
+    ip = get_real_ip(request)
     count = cache_device_hit_structured(
         token, ip, user_agent, hwid, settings.DEVICE_LIMIT_TTL_MINUTES * 60
     )

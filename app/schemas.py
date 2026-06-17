@@ -72,7 +72,7 @@ class ServerConfigUpdate(BaseModel):
 # Client Key schemas
 class ClientKeyBase(BaseModel):
     client_name: Optional[str] = "Client"
-    device_limit: Optional[int] = 3
+    device_limit: Optional[int] = Field(default=3, ge=1, le=100)
     is_active: Optional[bool] = True
     expires_at: Optional[datetime] = None
 

@@ -7,9 +7,36 @@ from urllib.parse import urlparse, parse_qs, unquote
 from celery import shared_task
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
-from app.models import UnlimitedSource, ServerConfig
+from app.models import UnlimitedSource, ServerConfig, ClientKey
 
 PROTOCOLS = ["vless", "trojan", "vmess", "ss", "ssr"]
+
+@shared_task
+def deactivate_expired_keys():
+    """Деактивирует просроченные ключи клиентов."""
+    db = SessionLocal()
+    try:
+        now = datetime.utcnow()
+        expired = (
+            db.query(ClientKey)
+            .filter(
+                ClientKey.is_active == True,
+                ClientKey.expires_at.isnot(None),
+                ClientKey.expires_at < now,
+            )
+            .all()
+        )
+        for key in expired:
+            key.is_active = False
+            # Чистим кэш и device bindings
+            from app.redis_client import clear_device_limit, delete_subscription_cache
+            clear_device_limit(key.token)
+            delete_subscription_cache(key.token)
+        db.commit()
+        if expired:
+            print(f"[CLEANUP] Deactivated {len(expired)} expired keys")
+    finally:
+        db.close()
 
 @shared_task
 def fetch_all_sources():
