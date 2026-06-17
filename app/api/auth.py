@@ -36,10 +36,13 @@ def login(request: Request, user_in: UserLogin, response: Response, db: Session 
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User deactivated")
 
     access_token = create_access_token(data={"sub": user.username})
+    # Определяем, HTTPS ли соединение (через Cloudflare или Nginx)
+    is_https = request.headers.get("x-forwarded-proto", "http") == "https"
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
+        secure=is_https,
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         samesite="lax",
     )

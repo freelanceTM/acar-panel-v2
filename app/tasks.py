@@ -189,19 +189,36 @@ def _parse_ss(link: str) -> dict | None:
 def _parse_ssr(link: str) -> dict | None:
     try:
         b64 = link.split("://", 1)[1]
-        decoded = base64.b64decode(b64 + "==").decode("utf-8")
-        # ssr://server:port:protocol:method:obfs:password_base64/?params_base64
-        parts = decoded.split("://", 1)[0] if "://" in decoded else decoded
-        if not parts:
-            return None
-        # Simple heuristic: take host and port from beginning
-        match = re.match(r"([^:]+):(\d+):", decoded)
-        if match:
-            host = match.group(1)
-            port = int(match.group(2))
-        else:
-            host = ""
-            port = 0
-        return {"protocol": "ssr", "host": host, "port": port, "name": ""}
+        # Add padding if needed
+        padding = 4 - len(b64) % 4
+        if padding != 4:
+            b64 += "=" * padding
+        decoded = base64.b64decode(b64).decode("utf-8")
+        
+        # Format: host:port:protocol:method:obfs:base64_password/?params_base64#name
+        # Example: ssr://192.168.1.1:1234:origin:aes-256-cfb:plain:dGVzdA==/?obfsparam=...&remarks=...
+        
+        # Extract name from #fragment
+        name = ""
+        if "#" in decoded:
+            decoded, name_frag = decoded.split("#", 1)
+            name = unquote(name_frag)
+        
+        # Extract obfsparam/remarks from ?query
+        if "/?" in decoded:
+            decoded, query_str = decoded.split("/?", 1)
+            params = parse_qs(query_str)
+            if not name and params.get("remarks"):
+                name = params["remarks"][0]
+        
+        parts = decoded.split(":")
+        if len(parts) >= 2:
+            host = parts[0]
+            try:
+                port = int(parts[1])
+            except ValueError:
+                port = 0
+            return {"protocol": "ssr", "host": host, "port": port, "name": name}
+        return None
     except Exception:
         return None

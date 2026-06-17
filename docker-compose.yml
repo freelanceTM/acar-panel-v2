@@ -6,37 +6,33 @@ services:
     container_name: acar_api
     ports:
       - "8000:8000"
-    environment:
-      - DATABASE_URL=sqlite:///./data/relaxpanel.db
-      - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=acar2026secretkey_xjf92lsdk
-      - CELERY_BROKER_URL=redis://redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://redis:6379/2
-      - FIRST_ADMIN_USERNAME=admin
-      - FIRST_ADMIN_PASSWORD=admin123
-
+    env_file:
+      - .env
     volumes:
       - ./data:/app/data
       - ./app:/app/app
     depends_on:
       - redis
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   worker:
     build: .
     container_name: acar_worker
-    environment:
-      - DATABASE_URL=sqlite:///./data/relaxpanel.db
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://redis:6379/2
-      - SECRET_KEY=acar2026secretkey_xjf92lsdk
+    env_file:
+      - .env
     volumes:
       - ./data:/app/data
       - ./app:/app/app
     depends_on:
       - redis
-    command: celery -A app.celery_worker worker -B -l info
+    command: celery -A app.celery_worker worker -B -l info --without-mingle --without-gossip
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -44,6 +40,11 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -52,9 +53,9 @@ services:
     command: tunnel --no-autoupdate --url http://app:8000
     depends_on:
       - app
-    # Опционально: привязать к имени туннеля (если хотите постоянный URL)
+    # Для постоянного URL — раскомментируйте и укажите ваш токен:
     # environment:
-    #   - TUNNEL_TOKEN=your_token_here
+    #   - TUNNEL_TOKEN=ваш_токен_здесь
     # command: tunnel run
 
   nginx:
@@ -63,7 +64,6 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
-
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./frontend:/usr/share/nginx/html:ro

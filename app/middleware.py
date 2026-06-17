@@ -1,12 +1,13 @@
 import time
+import logging
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
-from app.redis_client import get_redis, _redis_or_fallback
+from app.redis_client import get_redis, _redis_or_fallback, get_real_ip
 from app.config import get_settings
 
+logger = logging.getLogger("acar.middleware")
 settings = get_settings()
 
-BAN_WINDOW = 60       # секунд
 BAN_THRESHOLD = 100   # запросов на /sub/ за 10 секунд → бан на 5 минут
 BAN_DURATION = 300    # 5 минут бана
 
@@ -39,13 +40,11 @@ def _track_and_check(ip: str, path: str) -> bool:
     r, fallback = _redis_or_fallback()
     key = f"ddos:{ip}"
     if fallback:
-        # Simple in-memory counter per 10-second window
         now = int(time.time())
         window = now // 10
         mem_key = f"{key}:{window}"
-        count = _fallback_bans.get(mem_key, 0) + 1  # reuse dict for counters
+        count = _fallback_bans.get(mem_key, 0) + 1
         _fallback_bans[mem_key] = count
-        # Cleanup old windows
         for k in list(_fallback_bans.keys()):
             if k.startswith(key) and int(k.split(":")[-1]) < window - 1:
                 _fallback_bans.pop(k, None)
@@ -62,11 +61,12 @@ def _track_and_check(ip: str, path: str) -> bool:
 
 class DDoSProtectionMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        ip = request.client.host if request.client else "unknown"
+        ip = get_real_ip(request)
         path = request.url.path
 
         # Check if already banned
         if _is_banned(ip):
+            logger.warning(f"DDoS: Banned IP {ip} blocked on {path}")
             return Response(
                 content="🔒 IP temporarily blocked due to excessive requests.",
                 status_code=429,
@@ -76,6 +76,7 @@ class DDoSProtectionMiddleware(BaseHTTPMiddleware):
         # Track subscription abuse
         if _track_and_check(ip, path):
             _ban_ip(ip, BAN_DURATION)
+            logger.warning(f"DDoS: IP {ip} banned for 5min (exceeded threshold on {path})")
             return Response(
                 content="🔒 Your IP has been blocked for 5 minutes. Too many requests.",
                 status_code=429,

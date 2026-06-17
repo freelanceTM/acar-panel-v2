@@ -9,11 +9,12 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: str = "redis://redis:6379/2"
     SECRET_KEY: str = "change-me-in-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours (было 7 дней)
     SUBSCRIPTION_CACHE_TTL_MINUTES: int = 10
     DEVICE_LIMIT_TTL_MINUTES: int = 15
     MAX_LOGIN_ATTEMPTS: int = 5
     LOGIN_RATE_LIMIT_WINDOW: int = 600  # 10 minutes
+    LOG_LEVEL: str = "INFO"  # DEBUG, INFO, WARNING, ERROR
 
     class Config:
         env_file = ".env"

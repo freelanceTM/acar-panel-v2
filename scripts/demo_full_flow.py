@@ -41,7 +41,7 @@ print(f"Profile title: {r.json().get('profile_title')}")
 
 # 4. Add real unlimited source
 banner("4. ДОБАВЛЕНИЕ UNLIMITED-ИСТОЧНИКА")
-source_url = "https://tmcell.cyber-happ.online:443/vipsub7/QXphbWF0LDE3ODE1NDM3NzQJwhRVFz9lP"
+source_url = "https://example.com/sub.txt"  # ЗАМЕНИТЕ НА ВАШ РЕАЛЬНЫЙ URL
 r = client.post("/api/dealer/sources", json={"name": "VIP Real Source", "url": source_url, "is_active": True}, cookies={"access_token": cookie})
 print(f"Status: {r.status_code}")
 source_id = r.json().get("id")

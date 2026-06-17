@@ -35,9 +35,9 @@ r = client.patch("/api/dealer/me", json={
 }, cookies={"access_token": cookie})
 print(f"Profile title: {r.json().get('profile_title')}")
 
-# 4. Add FIRST source (your real one)
-banner("4. ИСТОЧНИК 1 — Ваш реальный VIP sub")
-url1 = "https://tmcell.cyber-happ.online:443/vipsub7/QXphbWF0LDE3ODE1NDM3NzQJwhRVFz9lP"
+# 4. Add FIRST source
+banner("4. ИСТОЧНИК 1 — Real VIP sub")
+url1 = "https://example.com/sub.txt"  # ЗАМЕНИТЕ НА ВАШ ПЕРВЫЙ REAL URL
 r = client.post("/api/dealer/sources", json={"name": "VIP Source #1", "url": url1, "is_active": True}, cookies={"access_token": cookie})
 source1_id = r.json().get("id")
 print(f"Source ID: {source1_id} | Name: {r.json().get('name')}")

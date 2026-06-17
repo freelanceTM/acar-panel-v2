@@ -32,7 +32,7 @@ try:
         print(f"Using existing dealer id={dealer.id}")
 
     # Add real source
-    url = "https://tmcell.cyber-happ.online:443/vipsub7/QXphbWF0LDE3ODE1NDM3NzQJwhRVFz9lP"
+    url = "https://example.com/sub.txt"  # ЗАМЕНИТЕ НА ВАШ РЕАЛЬНЫЙ URL
     source = db.query(UnlimitedSource).filter(UnlimitedSource.url == url).first()
     if not source:
         source = UnlimitedSource(url=url, name="Real VIP Sub", owner_id=dealer.id, is_active=True)
