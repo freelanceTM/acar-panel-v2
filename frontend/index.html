@@ -2,593 +2,651 @@
 <html lang="ru" class="dark">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Açar🔐 Clone</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Açar🔐</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
-<script>
-tailwind.config = { darkMode: 'class' }
-</script>
+<script>tailwind.config = { darkMode: 'class' }</script>
 <style>
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif; }
-  .modal { display:none; position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.6); align-items:center; justify-content:center; }
+  * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overscroll-behavior: none; }
+  .modal { display:none; position:fixed; inset:0; z-index:100; background:rgba(0,0,0,.65); align-items:flex-end; justify-content:center; }
   .modal.active { display:flex; }
-  .modal-box { background:#1f2937; color:#f3f4f6; padding:24px; border-radius:12px; max-width:640px; width:90%; max-height:90vh; overflow:auto; }
-  .light .modal-box { background:#fff; color:#111827; border:1px solid #e5e7eb; }
-  .table-row:hover { background:rgba(255,255,255,.04); }
-  .light .table-row:hover { background:rgba(0,0,0,.04); }
-  .dragging { opacity: .5; }
-  .drag-over { border-top: 2px solid #6366f1; }
-  @media (max-width: 768px) {
-    .hide-mobile { display:none; }
-    .card-mobile { display:block; border:1px solid #374151; border-radius:8px; padding:12px; margin-bottom:8px; }
-    .light .card-mobile { border-color:#e5e7eb; }
-  }
-  @media (min-width: 769px) {
-    .card-mobile { display:none; }
-  }
+  @media(min-width:640px){ .modal { align-items:center; } }
+  .modal-box { background:#1f2937; color:#f3f4f6; width:100%; max-height:92vh; overflow-y:auto; border-radius:20px 20px 0 0; padding:20px 16px 32px; }
+  @media(min-width:640px){ .modal-box { max-width:580px; border-radius:16px; padding:24px; } }
+  .modal-box-light { background:#fff !important; color:#111827 !important; border:1px solid #e5e7eb; }
+  .bottom-nav { position:fixed; bottom:0; left:0; right:0; z-index:50; padding-bottom:env(safe-area-inset-bottom); }
+  .toast-wrap { position:fixed; bottom:80px; left:50%; transform:translateX(-50%); z-index:200; pointer-events:none; white-space:nowrap; }
+  @media(min-width:640px){ .toast-wrap { bottom:20px; right:20px; left:auto; transform:none; } }
+  .dragging { opacity:.4; }
+  input, textarea, select { font-size:16px !important; }
+  .page-fade { animation: fadeIn .15s ease; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+  ::-webkit-scrollbar { width:4px; height:4px; }
+  ::-webkit-scrollbar-thumb { background:#4b5563; border-radius:4px; }
 </style>
 </head>
-<body class="bg-gray-950 text-gray-100 min-h-screen transition-colors duration-300">
+<body class="bg-gray-950 text-gray-100 min-h-screen">
 <div id="app"></div>
-
+<div class="toast-wrap" id="toastWrap"></div>
 <script>
 const API = location.origin + '/api';
-let state = { page: 'login', user: null, keys: [], sources: [], servers: [], modal: null, toast: null, dark: true };
+let state = { page: 'dashboard', user: null, keys: [], sources: [], servers: [], dark: true };
 
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
+const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 
+/* ---- API ---- */
 async function api(method, endpoint, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(API + endpoint, opts);
-  if (res.status === 401) { state.user = null; render(); }
+  if (res.status === 401) { state.user = null; render(); return; }
   if (!res.ok) { const err = await res.json().catch(()=>null); throw new Error(err?.detail || res.statusText); }
   return res.status === 204 ? null : res.json();
-}
-
-function navigate(page) { state.page = page; render(); }
-
-function render() {
-  const app = $('#app');
-  if (!state.user) { app.innerHTML = loginPage(); return; }
-  if (state.page === 'dashboard') { app.innerHTML = dashboardPage(); initDashboard(); }
-  else if (state.page === 'sources') { app.innerHTML = sourcesPage(); initSources(); }
-  else if (state.page === 'servers') { app.innerHTML = serversPage(); initServers(); }
-  else if (state.page === 'settings') { app.innerHTML = settingsPage(); initSettings(); }
-  else if (state.page === 'admin' && state.user.is_admin) { app.innerHTML = adminPage(); initAdmin(); }
-  else { navigate('dashboard'); }
 }
 
 /* ---- Theme ---- */
 function toggleTheme() {
   state.dark = !state.dark;
   document.documentElement.classList.toggle('dark', state.dark);
-  document.documentElement.classList.toggle('light', !state.dark);
-  document.body.classList.toggle('bg-gray-950', state.dark);
-  document.body.classList.toggle('text-gray-100', state.dark);
-  document.body.classList.toggle('bg-gray-50', !state.dark);
-  document.body.classList.toggle('text-gray-900', !state.dark);
+  document.body.className = state.dark ? 'bg-gray-950 text-gray-100 min-h-screen' : 'bg-gray-50 text-gray-900 min-h-screen';
   localStorage.setItem('rp_theme', state.dark ? 'dark' : 'light');
+  render();
 }
 function loadTheme() {
-  const t = localStorage.getItem('rp_theme');
-  if (t === 'light') toggleTheme();
+  if (localStorage.getItem('rp_theme') === 'light') {
+    state.dark = false;
+    document.documentElement.classList.remove('dark');
+    document.body.className = 'bg-gray-50 text-gray-900 min-h-screen';
+  }
 }
 
-/* ---- Auth ---- */
+/* ---- Render ---- */
+function navigate(page) { state.page = page; render(); }
+
+function render() {
+  const app = $('#app');
+  if (!state.user) { app.innerHTML = loginPage(); bindLogin(); return; }
+  const pages = { dashboard: dashboardPage, sources: sourcesPage, servers: serversPage, settings: settingsPage, admin: adminPage };
+  const fn = pages[state.page];
+  if (!fn || (state.page === 'admin' && !state.user.is_admin)) { state.page = 'dashboard'; render(); return; }
+  app.innerHTML = layout(fn());
+  const inits = { dashboard: initDashboard, sources: initSources, servers: initServers, settings: initSettings, admin: initAdmin };
+  if (inits[state.page]) inits[state.page]();
+}
+
+/* ---- Modal helpers ---- */
+function openModal(id, html) {
+  const lightCls = state.dark ? '' : ' modal-box-light';
+  const wrap = document.createElement('div');
+  wrap.id = id;
+  wrap.className = 'modal active';
+  wrap.innerHTML = '<div class="modal-box' + lightCls + '">' + html + '</div>';
+  wrap.addEventListener('click', e => { if (e.target === wrap) closeModal(id); });
+  const holder = document.getElementById('modal') || document.body;
+  holder.appendChild(wrap);
+}
+function closeModal(id) { const el = document.getElementById(id); if (el) el.remove(); }
+
+function closeBtnHtml(id) {
+  const cls = state.dark ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600';
+  return '<button onclick="closeModal(\'' + id + '\')" class="w-8 h-8 flex items-center justify-center rounded-full ' + cls + '">✕</button>';
+}
+
+/* ---- Login ---- */
 function loginPage() {
-  return `<div class="min-h-screen flex items-center justify-center p-4 ${state.dark?'bg-gray-950':'bg-gray-50'}">
-    <div class="w-full max-w-sm bg-gray-900/80 border border-gray-800 rounded-2xl p-6 shadow-xl ${state.dark?'':'bg-white border-gray-200'}">
-      <h1 class="text-2xl font-bold text-center mb-6">Açar🔐</h1>
-      <div id="loginError" class="hidden mb-3 text-sm text-red-400 bg-red-950/40 border border-red-900 rounded px-3 py-2"></div>
-      <form id="loginForm" class="space-y-4">
-        <input name="username" placeholder="Логин" autocomplete="off" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:border-indigo-500">
-        <input name="password" type="password" placeholder="Пароль" autocomplete="new-password" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 outline-none focus:border-indigo-500">
-        <button class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg px-3 py-2">Войти</button>
-      </form>
-      <p class="text-center text-xs text-gray-500 mt-4">Нет аккаунта? <a href="#" onclick="showRegister()" class="text-indigo-400 hover:underline">Регистрация</a></p>
-    </div>
-  </div>`;
+  const d = state.dark;
+  const cardCls = d ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200';
+  const inpCls = d ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-gray-200';
+  const subCls = d ? 'text-gray-400' : 'text-gray-500';
+  return '<div class="min-h-screen flex flex-col items-center justify-center p-5 ' + (d?'bg-gray-950':'bg-gray-50') + '">'
+    + '<div class="w-full max-w-sm">'
+    + '<div class="text-center mb-8">'
+    + '<div class="w-16 h-16 rounded-2xl bg-indigo-600 flex items-center justify-center text-2xl mx-auto mb-3">🔐</div>'
+    + '<h1 class="text-2xl font-bold">Açar</h1>'
+    + '<p class="text-sm ' + subCls + ' mt-1">VPN управление</p>'
+    + '</div>'
+    + '<div class="' + cardCls + ' border rounded-2xl p-5 shadow-xl">'
+    + '<div id="loginError" class="hidden mb-3 text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-xl px-3 py-2.5"></div>'
+    + '<form id="loginForm" class="space-y-3">'
+    + '<input name="username" placeholder="Логин" autocomplete="off" class="w-full ' + inpCls + ' border rounded-xl px-4 py-3 outline-none focus:border-indigo-500 transition">'
+    + '<input name="password" type="password" placeholder="Пароль" autocomplete="current-password" class="w-full ' + inpCls + ' border rounded-xl px-4 py-3 outline-none focus:border-indigo-500 transition">'
+    + '<button class="w-full bg-indigo-600 active:bg-indigo-700 text-white font-semibold rounded-xl px-4 py-3 mt-1">Войти</button>'
+    + '</form>'
+    + '<p class="text-center text-sm ' + subCls + ' mt-4">Нет аккаунта? <a href="#" onclick="showRegister();return false;" class="text-indigo-400 font-medium">Регистрация</a></p>'
+    + '</div></div></div>';
+}
+
+function bindLogin() {
+  $('#loginForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api('POST', '/auth/login', { username: fd.get('username'), password: fd.get('password') });
+      const user = await api('GET', '/dealer/me');
+      state.user = user; navigate('dashboard');
+    } catch(err) {
+      const el = $('#loginError');
+      el.textContent = err.message; el.classList.remove('hidden');
+    }
+  });
 }
 
 function showRegister() {
-  const box = document.createElement('div');
-  box.innerHTML = `<div class="modal active" id="regModal"><div class="modal-box">
-    <h2 class="text-xl font-bold mb-4">Регистрация</h2>
-    <div id="regError" class="hidden mb-3 text-sm text-red-400 bg-red-950/40 border border-red-900 rounded px-3 py-2"></div>
-    <form id="regForm" class="space-y-3">
-      <input name="username" placeholder="Логин" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
-      <input name="password" type="password" placeholder="Пароль (мин. 6)" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
-      <div class="flex justify-end gap-2 mt-2">
-        <button type="button" onclick="document.getElementById('regModal').remove()" class="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600">Отмена</button>
-        <button class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500">Создать</button>
-      </div>
-    </form>
-  </div></div>`;
-  document.body.appendChild(box);
-  $('#regForm').addEventListener('submit', async e => {
+  const d = state.dark;
+  const inpCls = 'w-full ' + (d ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-gray-200') + ' border rounded-xl px-4 py-3 outline-none focus:border-indigo-500';
+  openModal('regModal',
+    '<div class="flex items-center justify-between mb-5"><h2 class="text-xl font-bold">Регистрация</h2>' + closeBtnHtml('regModal') + '</div>'
+    + '<div id="regError" class="hidden mb-3 text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-xl px-3 py-2"></div>'
+    + '<form id="regForm" class="space-y-3">'
+    + '<input name="username" placeholder="Логин" class="' + inpCls + '">'
+    + '<input name="password" type="password" placeholder="Пароль (мин. 6)" class="' + inpCls + '">'
+    + '<button class="w-full mt-1 bg-indigo-600 active:bg-indigo-700 text-white font-semibold rounded-xl py-3">Создать аккаунт</button>'
+    + '</form>'
+  );
+  $('#regForm')?.addEventListener('submit', async e => {
     e.preventDefault();
     try {
       const fd = new FormData(e.target);
       await api('POST', '/auth/register', { username: fd.get('username'), password: fd.get('password') });
-      document.getElementById('regModal').remove();
-      toast('Аккаунт создан. Войдите.');
-    } catch(err) { $('#regError').textContent = err.message; $('#regError').classList.remove('hidden'); }
+      closeModal('regModal'); toast('Аккаунт создан. Войдите.');
+    } catch(err) { const el = $('#regError'); el.textContent = err.message; el.classList.remove('hidden'); }
   });
 }
 
 /* ---- Layout ---- */
 function layout(inner) {
-  const adminLink = state.user.is_admin ? `<a href="#" onclick="navigate('admin')" class="${state.page==='admin'?'text-indigo-400':'text-gray-300 hover:text-white'}">Админ</a>` : '';
-  return `<div class="min-h-screen ${state.dark?'bg-gray-950 text-gray-100':'bg-gray-50 text-gray-900'}">
-    <header class="border-b ${state.dark?'border-gray-800 bg-gray-900/60':'border-gray-200 bg-white/80'} backdrop-blur sticky top-0 z-40">
-      <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-sm">R</div>
-          <span class="font-semibold">Açar🔐</span>
-        </div>
-        <nav class="flex items-center gap-4 text-sm">
-          <a href="#" onclick="navigate('dashboard')" class="${state.page==='dashboard'?'text-indigo-400':'text-gray-300 hover:text-white'}">Ключи</a>
-          <a href="#" onclick="navigate('sources')" class="${state.page==='sources'?'text-indigo-400':'text-gray-300 hover:text-white'}">Источники</a>
-          <a href="#" onclick="navigate('servers')" class="${state.page==='servers'?'text-indigo-400':'text-gray-300 hover:text-white'}">Серверы</a>
-          <a href="#" onclick="navigate('settings')" class="${state.page==='settings'?'text-indigo-400':'text-gray-300 hover:text-white'}">Настройки</a>
-          ${adminLink}
-          <button onclick="toggleTheme()" class="text-gray-400 hover:text-white" title="Тема">◐</button>
-          <button onclick="logout()" class="text-gray-400 hover:text-white">Выйти</button>
-        </nav>
-      </div>
-    </header>
-    <main class="max-w-6xl mx-auto px-4 py-6">${inner}</main>
-  </div>`;
+  const d = state.dark;
+  const bg = d ? 'bg-gray-950 text-gray-100' : 'bg-gray-50 text-gray-900';
+  const hdr = d ? 'border-gray-800 bg-gray-900/80' : 'border-gray-200 bg-white/90';
+  const mhdr = d ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200';
+  const bnav = d ? 'bg-gray-900/95 border-gray-800' : 'bg-white/95 border-gray-200';
+
+  const navItems = [
+    { id:'dashboard', icon:'🗝️', label:'Ключи' },
+    { id:'sources',   icon:'🔗', label:'Источники' },
+    { id:'servers',   icon:'🖥️', label:'Серверы' },
+    { id:'settings',  icon:'⚙️', label:'Настройки' },
+  ];
+  if (state.user && state.user.is_admin) navItems.push({ id:'admin', icon:'👑', label:'Админ' });
+
+  const bottomNav = navItems.map(function(n) {
+    const active = state.page === n.id;
+    const cls = active ? 'text-indigo-400' : (d ? 'text-gray-500' : 'text-gray-400');
+    return '<button onclick="navigate(\'' + n.id + '\')" class="flex flex-col items-center justify-center flex-1 py-2 transition ' + cls + '">'
+      + '<span class="text-xl leading-none">' + n.icon + '</span>'
+      + '<span class="text-[10px] mt-0.5 font-medium">' + n.label + '</span>'
+      + '</button>';
+  }).join('');
+
+  const desktopNav = navItems.map(function(n) {
+    const active = state.page === n.id;
+    const cls = active
+      ? (d ? 'bg-indigo-600/20 text-indigo-400' : 'bg-indigo-50 text-indigo-600')
+      : (d ? 'text-gray-400 hover:text-white hover:bg-gray-800' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100');
+    return '<a href="#" onclick="navigate(\'' + n.id + '\');return false;" class="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition ' + cls + '">'
+      + '<span>' + n.icon + '</span>' + n.label + '</a>';
+  }).join('');
+
+  const themeBtn = '<button onclick="toggleTheme()" class="' + (d?'text-gray-400 hover:text-white':'text-gray-500 hover:text-gray-900') + ' p-2 rounded-lg transition" title="Тема">◐</button>';
+  const logoutBtn = '<button onclick="logout()" class="text-sm ' + (d?'text-gray-400 hover:text-white':'text-gray-500 hover:text-gray-900') + ' px-3 py-2 rounded-lg transition">Выйти</button>';
+
+  return '<div class="min-h-screen ' + bg + ' pb-20 sm:pb-0">'
+    // Desktop header
+    + '<header class="hidden sm:block border-b ' + hdr + ' backdrop-blur sticky top-0 z-40">'
+    + '<div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">'
+    + '<div class="flex items-center gap-2"><div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-sm">🔐</div><span class="font-bold">Açar</span></div>'
+    + '<nav class="flex items-center gap-1">' + desktopNav + '</nav>'
+    + '<div class="flex items-center gap-1">' + themeBtn + logoutBtn + '</div>'
+    + '</div></header>'
+    // Mobile top bar
+    + '<div class="sm:hidden ' + mhdr + ' border-b px-4 h-12 flex items-center justify-between sticky top-0 z-40">'
+    + '<div class="flex items-center gap-2"><div class="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center text-xs">🔐</div><span class="font-bold text-sm">Açar</span></div>'
+    + '<div class="flex items-center gap-1">' + themeBtn + '<button onclick="logout()" class="text-xs ' + (d?'text-gray-400':'text-gray-500') + ' px-2 py-1.5 rounded-lg">Выйти</button></div>'
+    + '</div>'
+    // Content
+    + '<main class="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-6 page-fade">' + inner + '</main>'
+    // Bottom nav mobile
+    + '<nav class="bottom-nav sm:hidden ' + bnav + ' border-t backdrop-blur flex">' + bottomNav + '</nav>'
+    + '</div>'
+    + '<div id="modal"></div>';
 }
 
-/* ---- Dashboard ---- */
+/* ============ DASHBOARD ============ */
 function dashboardPage() {
-  return layout(`
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold">Ключи клиентов</h2>
-      <button onclick="openKeyModal()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-lg text-sm font-medium">+ Добавить ключ</button>
-    </div>
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" id="statsCards"></div>
-    <div class="flex gap-2 mb-4">
-      <input id="searchKeys" placeholder="Поиск по имени..." class="bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm w-64 ${state.dark?'':'bg-white border-gray-200'}" oninput="searchKeys()">
-    </div>
-    <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden ${state.dark?'':'bg-white border-gray-200'}">
-      <table class="w-full text-sm text-left hide-mobile">
-        <thead class="${state.dark?'bg-gray-800/50':'bg-gray-100'} text-gray-400 text-xs uppercase">
-          <tr><th class="px-4 py-3">Имя</th><th class="px-4 py-3">Токен</th><th class="px-4 py-3">Лимит</th><th class="px-4 py-3">Статус</th><th class="px-4 py-3 text-right">Действия</th></tr>
-        </thead>
-        <tbody id="keysTable" class="divide-y ${state.dark?'divide-gray-800':'divide-gray-100'}"></tbody>
-      </table>
-      <div id="keysCards" class="p-2"></div>
-      <div id="keysPager" class="flex items-center justify-between px-4 py-3 border-t ${state.dark?'border-gray-800':'border-gray-200'} text-xs text-gray-400"></div>
-    </div>
-    <div id="modal"></div>
-  `);
+  const d = state.dark;
+  const inpCls = d ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200';
+  return '<div class="flex items-center justify-between mb-4">'
+    + '<h2 class="text-base sm:text-lg font-semibold">Ключи клиентов</h2>'
+    + '<button onclick="openKeyModal()" class="bg-indigo-600 active:bg-indigo-700 text-white px-3 py-2 rounded-xl text-sm font-medium">+ Ключ</button>'
+    + '</div>'
+    + '<div class="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4" id="statsCards"></div>'
+    + '<div class="mb-3"><input id="searchKeys" placeholder="🔍 Поиск по имени..." class="w-full ' + inpCls + ' border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-indigo-500 transition"></div>'
+    + '<div id="keysList"></div>'
+    + '<div id="keysPager" class="mt-3 flex items-center justify-between text-xs ' + (d?'text-gray-400':'text-gray-500') + '"></div>';
 }
 
 async function initDashboard() {
+  $('#searchKeys')?.addEventListener('input', () => { keyQ = $('#searchKeys').value; loadKeys(1); });
   await loadKeys(1);
   try {
-    const stats = await api('GET','/dealer/stats');
-    $('#statsCards').innerHTML = `
-      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Ключей</div><div class="text-xl font-bold">${stats.total_keys}</div></div>
-      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Активных</div><div class="text-xl font-bold text-emerald-400">${stats.active_keys}</div></div>
-      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Источников</div><div class="text-xl font-bold">${stats.total_sources}</div></div>
-      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Серверов</div><div class="text-xl font-bold">${stats.total_servers}</div></div>
-    `;
-  } catch(e){}
+    const stats = await api('GET', '/dealer/stats');
+    const d = state.dark;
+    const card = (label, val, color) => '<div class="' + (d?'bg-gray-900 border-gray-800':'bg-white border-gray-200') + ' border rounded-xl p-3"><div class="text-xs ' + (d?'text-gray-500':'text-gray-400') + ' mb-1">' + label + '</div><div class="text-2xl font-bold ' + color + '">' + val + '</div></div>';
+    $('#statsCards').innerHTML = card('Ключей', stats.total_keys, 'text-white') + card('Активных', stats.active_keys, 'text-emerald-400') + card('Источников', stats.total_sources, 'text-blue-400') + card('Серверов', stats.total_servers, 'text-purple-400');
+  } catch(e) {}
 }
 
 let keyPage = 1, keyQ = '';
 async function loadKeys(page) {
   keyPage = page;
   try {
-    const res = await api('GET', `/dealer/keys?page=${page}&limit=15&q=${encodeURIComponent(keyQ)}`);
+    const res = await api('GET', '/dealer/keys?page=' + page + '&limit=15&q=' + encodeURIComponent(keyQ));
     state.keys = res;
-    renderKeysTable(res);
-    renderKeysCards(res);
+    renderKeys(res);
   } catch(err) { toast(err.message); }
 }
-function searchKeys() { keyQ = $('#searchKeys').value; loadKeys(1); }
 
-function renderKeysTable(data) {
-  const tbody = $('#keysTable');
-  const pager = $('#keysPager');
-  if (!data.items.length) { tbody.innerHTML = `<tr><td colspan="5" class="px-4 py-6 text-center text-gray-500">Нет ключей</td></tr>`; pager.innerHTML = ''; return; }
-  tbody.innerHTML = data.items.map(k => rowHtml(k)).join('');
-  pager.innerHTML = `Стр. ${data.page} из ${data.pages} (всего ${data.total}) <div class="flex gap-2">${Array.from({length:data.pages},(_,i)=>`<button onclick="loadKeys(${i+1})" class="px-2 py-1 rounded ${i+1===data.page?'bg-indigo-600 text-white':'bg-gray-800 hover:bg-gray-700'}">${i+1}</button>`).join('')}</div>`;
-}
-function renderKeysCards(data) {
-  const el = $('#keysCards');
-  if (!data.items.length) { el.innerHTML = '<div class="text-gray-500 text-center py-4">Нет ключей</div>'; return; }
-  el.innerHTML = data.items.map(k => `
-    <div class="card-mobile ${state.dark?'bg-gray-900 border-gray-700':'bg-white border-gray-200'}">
-      <div class="flex justify-between"><span class="font-medium">${esc(k.client_name)}</span>${statusBadge(k)}</div>
-      <div class="text-xs text-gray-400 font-mono mt-1">${k.token}</div>
-      <div class="text-xs text-gray-500 mt-1">Лимит: ${k.device_limit}</div>
-      <div class="flex gap-2 mt-2">
-        <button onclick="resetKey(${k.id})" class="text-xs text-gray-400">Сброс</button>
-        <button onclick="editKey(${k.id})" class="text-xs text-indigo-400">Изм</button>
-        <button onclick="showDevices(${k.id})" class="text-xs text-indigo-400">Устр</button>
-        <button onclick="showQr('${location.origin}/sub/${k.token}')" class="text-xs text-indigo-400">QR</button>
-        <button onclick="deleteKey(${k.id})" class="text-xs text-red-400">Удал</button>
-      </div>
-    </div>
-  `).join('');
-}
 function statusBadge(k) {
-  if (!k.is_active) return '<span class="text-red-400 text-xs">Отключен</span>';
-  if (k.expires_at && new Date(k.expires_at) < new Date()) return '<span class="text-orange-400 text-xs">Просрочен</span>';
-  return '<span class="text-emerald-400 text-xs">Активен</span>';
+  if (!k.is_active) return '<span class="text-[10px] font-medium bg-red-950/50 text-red-400 px-2 py-0.5 rounded-full">Откл</span>';
+  if (k.expires_at && new Date(k.expires_at) < new Date()) return '<span class="text-[10px] font-medium bg-orange-950/50 text-orange-400 px-2 py-0.5 rounded-full">Просрочен</span>';
+  return '<span class="text-[10px] font-medium bg-emerald-950/50 text-emerald-400 px-2 py-0.5 rounded-full">Активен</span>';
 }
-function rowHtml(k) {
-  const url = location.origin + '/sub/' + k.token;
-  return `<tr class="table-row">
-    <td class="px-4 py-3">${esc(k.client_name)}</td>
-    <td class="px-4 py-3 font-mono text-xs text-gray-400">${k.token}
-      <button onclick="copyText('${url}')" class="ml-2 text-indigo-400 hover:text-indigo-300">копир</button>
-    </td>
-    <td class="px-4 py-3">${k.device_limit}</td>
-    <td class="px-4 py-3">${statusBadge(k)}</td>
-    <td class="px-4 py-3 text-right">
-      <button onclick="resetKey(${k.id})" class="text-gray-400 hover:text-white mr-2 text-xs">Сброс</button>
-      <button onclick="editKey(${k.id})" class="text-indigo-400 hover:text-indigo-300 mr-2 text-xs">Изм</button>
-      <button onclick="showDevices(${k.id})" class="text-indigo-400 hover:text-indigo-300 mr-2 text-xs">Устр</button>
-      <button onclick="showQr('${url}')" class="text-indigo-400 hover:text-indigo-300 mr-2 text-xs">QR</button>
-      <button onclick="deleteKey(${k.id})" class="text-red-400 hover:text-red-300 text-xs">Удал</button>
-    </td>
-  </tr>`;
+
+function renderKeys(data) {
+  const d = state.dark;
+  const el = $('#keysList');
+  const pager = $('#keysPager');
+  if (!data.items.length) {
+    el.innerHTML = '<div class="text-center py-12 ' + (d?'text-gray-500':'text-gray-400') + '"><div class="text-4xl mb-2">🗝️</div><div class="text-sm">Нет ключей. Добавьте первый!</div></div>';
+    if (pager) pager.innerHTML = '';
+    return;
+  }
+  const cardBg = d ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200';
+  const monoBg = d ? 'bg-gray-800' : 'bg-gray-100';
+  const divider = d ? 'border-gray-800' : 'border-gray-100';
+  const btnGray = d ? 'bg-gray-800 active:bg-gray-700' : 'bg-gray-100 active:bg-gray-200';
+  const btnEdit = d ? 'bg-indigo-600/20 text-indigo-400' : 'bg-indigo-50 text-indigo-600';
+  const btnDel  = d ? 'bg-red-950/40 text-red-400' : 'bg-red-50 text-red-500';
+  const sub     = d ? 'text-gray-500' : 'text-gray-400';
+  const sub2    = d ? 'text-gray-300' : 'text-gray-700';
+
+  el.innerHTML = data.items.map(function(k) {
+    const url = location.origin + '/sub/' + k.token;
+    const bypassUrl = wrapUrl(url);
+    const exp = k.expires_at ? ' · Истекает: <span class="font-medium">' + new Date(k.expires_at).toLocaleDateString('ru') + '</span>' : '';
+    return '<div class="' + cardBg + ' border rounded-xl p-4 mb-2.5">'
+      + '<div class="flex items-start justify-between gap-2">'
+      + '<div class="flex-1 min-w-0">'
+      + '<div class="flex items-center gap-2 mb-2"><span class="font-semibold text-sm truncate">' + esc(k.client_name) + '</span>' + statusBadge(k) + '</div>'
+      + '<div class="' + monoBg + ' rounded-lg px-3 py-2 flex items-center justify-between gap-2">'
+      + '<span class="font-mono text-xs ' + sub + ' truncate">' + k.token + '</span>'
+      + '<div class="flex flex-col gap-1 flex-shrink-0">' + '<button onclick="copyText(\'' + url + '\')" class="text-indigo-400 active:text-indigo-300 text-xs font-medium block">Копир</button>' + '<button onclick="copyText(\'' + bypassUrl + '\')" class="text-emerald-400 active:text-emerald-300 text-xs font-medium block">Обход</button>' + '</div>'
+      + '</div>'
+      + '<div class="text-xs ' + sub + ' mt-2">Лимит: <span class="font-medium ' + sub2 + '">' + k.device_limit + '</span>' + exp + '</div>'
+      + '</div></div>'
+      + '<div class="flex items-center gap-2 mt-3 pt-3 border-t ' + divider + ' flex-wrap">'
+      + '<button onclick="showQr(\'' + url + '\')" class="' + btnGray + ' text-xs px-3 py-1.5 rounded-lg font-medium">📱 QR</button>'
+      + '<button onclick="showDevices(' + k.id + ')" class="' + btnGray + ' text-xs px-3 py-1.5 rounded-lg font-medium">📟 Устройства</button>'
+      + '<button onclick="editKey(' + k.id + ')" class="' + btnEdit + ' text-xs px-3 py-1.5 rounded-lg font-medium">✏️ Изменить</button>'
+      + '<button onclick="resetKey(' + k.id + ')" class="' + btnGray + ' text-xs px-3 py-1.5 rounded-lg font-medium">🔄 Сброс</button>'
+      + '<button onclick="deleteKey(' + k.id + ')" class="' + btnDel + ' text-xs px-3 py-1.5 rounded-lg font-medium ml-auto">🗑️</button>'
+      + '</div></div>';
+  }).join('');
+
+  if (pager) {
+    if (data.pages > 1) {
+      const prev = data.page > 1 ? '<button onclick="loadKeys(' + (data.page-1) + ')" class="' + (d?'bg-gray-800':'bg-gray-200') + ' px-3 py-1.5 rounded-lg">←</button>' : '';
+      const next = data.page < data.pages ? '<button onclick="loadKeys(' + (data.page+1) + ')" class="' + (d?'bg-gray-800':'bg-gray-200') + ' px-3 py-1.5 rounded-lg">→</button>' : '';
+      pager.innerHTML = '<span>Стр. ' + data.page + ' из ' + data.pages + ' · ' + data.total + '</span><div class="flex gap-1">' + prev + next + '</div>';
+    } else {
+      pager.innerHTML = '<span>' + data.total + ' ключей</span>';
+    }
+  }
 }
 
 function openKeyModal(key) {
   const isEdit = !!key;
-  const expVal = key?.expires_at ? new Date(key.expires_at).toISOString().slice(0,10) : '';
-  const html = `<div class="modal active" id="keyModal"><div class="modal-box">
-    <h2 class="text-xl font-bold mb-4">${isEdit?'Редактировать':'Создать'} ключ</h2>
-    <form id="keyForm" class="space-y-3">
-      <input name="client_name" placeholder="Имя клиента" value="${esc(key?.client_name||'')}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
-      <input name="device_limit" type="number" placeholder="Лимит устройств" value="${key?.device_limit||3}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
-      <input name="expires_at" type="date" placeholder="Срок (не обязательно)" value="${expVal}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="is_active" ${key?.is_active!==false?'checked':''}> Активен</label>
-      <div class="flex justify-end gap-2 mt-4">
-        <button type="button" onclick="document.getElementById('keyModal').remove()" class="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600">Отмена</button>
-        <button class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500">${isEdit?'Сохранить':'Создать'}</button>
-      </div>
-    </form>
-  </div></div>`;
-  $('#modal').innerHTML = html;
-  $('#keyForm').addEventListener('submit', async e => {
+  const d = state.dark;
+  const inpCls = 'w-full ' + (d ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-gray-200') + ' border rounded-xl px-4 py-3 outline-none focus:border-indigo-500';
+  const expVal = key && key.expires_at ? new Date(key.expires_at).toISOString().slice(0,10) : '';
+  const cancelCls = d ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-100 hover:bg-gray-200';
+  openModal('keyModal',
+    '<div class="flex items-center justify-between mb-5"><h2 class="text-xl font-bold">' + (isEdit?'Редактировать':'Новый') + ' ключ</h2>' + closeBtnHtml('keyModal') + '</div>'
+    + '<form id="keyForm" class="space-y-3">'
+    + '<div><label class="text-xs ' + (d?'text-gray-400':'text-gray-500') + ' mb-1 block">Имя клиента</label><input name="client_name" placeholder="Иван Иванов" value="' + esc(key?key.client_name:'') + '" class="' + inpCls + '"></div>'
+    + '<div><label class="text-xs ' + (d?'text-gray-400':'text-gray-500') + ' mb-1 block">Лимит устройств</label><input name="device_limit" type="number" min="1" max="10" value="' + (key?key.device_limit:3) + '" class="' + inpCls + '"></div>'
+    + '<div><label class="text-xs ' + (d?'text-gray-400':'text-gray-500') + ' mb-1 block">Срок действия (необязательно)</label><input name="expires_at" type="date" value="' + expVal + '" class="' + inpCls + '"></div>'
+    + '<label class="flex items-center gap-3 py-1 cursor-pointer"><input type="checkbox" name="is_active" ' + (key&&key.is_active===false?'':'checked') + ' class="w-5 h-5 rounded accent-indigo-600"><span class="text-sm">Активен</span></label>'
+    + '<div class="flex gap-2 pt-2"><button type="button" onclick="closeModal(\'keyModal\')" class="' + cancelCls + ' flex-1 py-3 rounded-xl font-medium text-sm">Отмена</button><button class="bg-indigo-600 active:bg-indigo-700 text-white flex-1 py-3 rounded-xl font-semibold text-sm">' + (isEdit?'Сохранить':'Создать') + '</button></div>'
+    + '</form>'
+  );
+  $('#keyForm')?.addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const body = {
-      client_name: fd.get('client_name'),
-      device_limit: parseInt(fd.get('device_limit')),
-      is_active: !!fd.get('is_active'),
-    };
+    const body = { client_name: fd.get('client_name'), device_limit: parseInt(fd.get('device_limit')), is_active: !!fd.get('is_active') };
     const exp = fd.get('expires_at');
     if (exp) body.expires_at = new Date(exp + 'T23:59:59').toISOString();
     try {
-      if (isEdit) await api('PATCH', `/dealer/keys/${key.id}`, body);
+      if (isEdit) await api('PATCH', '/dealer/keys/' + key.id, body);
       else await api('POST', '/dealer/keys', body);
-      document.getElementById('keyModal').remove();
-      loadKeys(keyPage);
-      toast(isEdit?'Сохранено':'Ключ создан');
+      closeModal('keyModal'); toast(isEdit ? 'Ключ обновлён' : 'Ключ создан'); loadKeys(keyPage);
     } catch(err) { toast(err.message); }
   });
 }
 
-async function resetKey(id) {
-  if (!confirm('Сбросить привязки устройств и HWID?')) return;
-  try {
-    await api('POST', `/dealer/keys/${id}/reset`, { reset_bindings: true, reset_hwid: true });
-    toast('Привязки сброшены');
-  } catch(err) { toast(err.message); }
+async function editKey(id) {
+  const k = state.keys && state.keys.items && state.keys.items.find(x => x.id === id);
+  if (k) { openKeyModal(k); return; }
+  try { const k2 = await api('GET', '/dealer/keys/' + id); openKeyModal(k2); } catch(e) {}
 }
-function editKey(id) { const k = state.keys.items.find(x=>x.id===id); if(k) openKeyModal(k); }
 async function deleteKey(id) {
   if (!confirm('Удалить ключ?')) return;
-  try { await api('DELETE', `/dealer/keys/${id}`); loadKeys(keyPage); toast('Удалено'); }
-  catch(err) { toast(err.message); }
+  try { await api('DELETE', '/dealer/keys/' + id); toast('Удалено'); loadKeys(keyPage); } catch(e) { toast(e.message); }
 }
-async function showDevices(keyId) {
+async function resetKey(id) {
+  if (!confirm('Сбросить устройства?')) return;
+  try { await api('POST', '/dealer/keys/' + id + '/reset'); toast('Сброшено'); loadKeys(keyPage); } catch(e) { toast(e.message); }
+}
+
+async function showDevices(id) {
+  const d = state.dark;
   try {
-    const res = await api('GET', `/dealer/keys/${keyId}/devices`);
-    const list = res.devices.map(d => `<div class="text-xs border-b ${state.dark?'border-gray-700':'border-gray-200'} py-2"><div class="font-mono">${esc(d.ip)}</div><div class="text-gray-500">${esc(d.user_agent||'').slice(0,60)}</div><div class="text-gray-500">HWID: ${esc(d.hwid||'—')} • ${new Date(d.last_seen).toLocaleString()}</div></div>`).join('') || '<div class="text-gray-500 text-xs">Нет устройств</div>';
-    $('#modal').innerHTML = `<div class="modal active" id="devModal"><div class="modal-box"><h3 class="font-bold mb-2">Привязанные устройства</h3>${list}<div class="mt-4 text-right"><button onclick="document.getElementById('devModal').remove()" class="px-3 py-2 rounded bg-gray-700">Закрыть</button></div></div></div>`;
+    const devs = await api('GET', '/dealer/keys/' + id + '/devices');
+    const cardCls = d ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200';
+    const items = devs.length
+      ? devs.map(dev => '<div class="' + cardCls + ' border rounded-xl p-3 mb-2"><div class="text-xs font-mono ' + (d?'text-gray-300':'text-gray-700') + '">' + esc(dev.ip_address||'—') + '</div><div class="text-xs ' + (d?'text-gray-500':'text-gray-400') + ' mt-1 truncate">' + esc(dev.user_agent||'—') + '</div><div class="text-xs ' + (d?'text-gray-600':'text-gray-400') + ' mt-1">' + (dev.last_seen ? new Date(dev.last_seen).toLocaleString('ru') : '') + '</div></div>').join('')
+      : '<div class="text-center py-6 ' + (d?'text-gray-500':'text-gray-400') + '">Нет устройств</div>';
+    openModal('devsModal', '<div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold">Устройства</h2>' + closeBtnHtml('devsModal') + '</div>' + items);
   } catch(e) { toast(e.message); }
 }
+
 function showQr(url) {
-  $('#modal').innerHTML = `<div class="modal active" id="qrModal"><div class="modal-box text-center"><h3 class="font-bold mb-2">QR-код подписки</h3><canvas id="qrCanvas"></canvas><div class="mt-2 text-xs text-gray-400 break-all">${esc(url)}</div><div class="mt-4"><button onclick="document.getElementById('qrModal').remove()" class="px-3 py-2 rounded bg-gray-700">Закрыть</button></div></div></div>`;
-  setTimeout(() => new QRious({element: document.getElementById('qrCanvas'), value: url, size: 200 }), 50);
+  const d = state.dark;
+  const monoCls = d ? 'bg-gray-800' : 'bg-gray-100';
+  const subCls  = d ? 'text-gray-400' : 'text-gray-500';
+  openModal('qrModal',
+    '<div class="flex items-center justify-between mb-4"><h2 class="text-lg font-bold">QR код</h2>' + closeBtnHtml('qrModal') + '</div>'
+    + '<div class="flex flex-col items-center gap-4">'
+    + '<div class="bg-white p-4 rounded-2xl"><canvas id="qrCanvas"></canvas></div>'
+    + '<div class="' + monoCls + ' rounded-xl px-3 py-2 w-full flex items-center justify-between gap-2"><span class="font-mono text-xs truncate ' + subCls + '">' + url + '</span><div class="flex gap-2 flex-shrink-0"><button onclick="copyText(\'' + url + '\')" class="text-indigo-400 text-xs font-medium">Копир</button><button onclick="copyText(\'' + wrapUrl(url) + '\')" class="text-emerald-400 text-xs font-medium">Обход</button></div></div>'
+    + '</div>'
+  );
+  setTimeout(() => {
+    const canvas = document.getElementById('qrCanvas');
+    if (canvas) new QRious({ element: canvas, value: url, size: 220, backgroundAlpha: 1, background: '#ffffff', foreground: '#000000' });
+  }, 60);
 }
 
-/* ---- Sources ---- */
+/* ============ SOURCES ============ */
 function sourcesPage() {
-  return layout(`
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold">Unlimited-источники</h2>
-      <button onclick="openSourceModal()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-lg text-sm font-medium">+ Добавить</button>
-    </div>
-    <div id="sourcesList" class="space-y-3"></div>
-    <div id="modal"></div>
-  `);
-}
-async function initSources() {
-  try { const list = await api('GET','/dealer/sources'); state.sources = list; renderSources(); } catch(e){ toast(e.message); }
-}
-function renderSources() {
-  const el = $('#sourcesList');
-  if (!state.sources.length) { el.innerHTML = '<p class="text-gray-500">Нет источников</p>'; return; }
-  el.innerHTML = state.sources.map(s => `
-    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-center justify-between ${state.dark?'':'bg-white border-gray-200'}">
-      <div>
-        <div class="font-medium">${esc(s.name)}</div>
-        <div class="text-xs text-gray-400 font-mono mt-1">${esc(s.url.substring(0,80))}...</div>
-        <div class="text-xs text-gray-500 mt-1">${s.is_active?'Активен':'Отключен'} • Обновлен: ${s.last_fetched_at ? new Date(s.last_fetched_at).toLocaleString() : '—'}</div>
-      </div>
-      <div class="flex gap-2">
-        <button onclick="fetchSourceNow(${s.id})" class="text-sm text-indigo-400 hover:text-indigo-300 mr-2">Обновить сейчас</button>
-        <button onclick="deleteSource(${s.id})" class="text-sm text-red-400 hover:text-red-300">Удалить</button>
-      </div>
-    </div>
-  `).join('');
+  const d = state.dark;
+  return '<div class="flex items-center justify-between mb-4"><h2 class="text-base sm:text-lg font-semibold">Источники</h2><button onclick="openSourceModal()" class="bg-indigo-600 active:bg-indigo-700 text-white px-3 py-2 rounded-xl text-sm font-medium">+ Добавить</button></div>'
+    + '<div id="sourcesList"><div class="text-center py-8 ' + (d?'text-gray-500':'text-gray-400') + '">Загрузка...</div></div>';
 }
 
-async function fetchSourceNow(id) {
-  try { await api('POST', `/dealer/sources/${id}/fetch`); toast('Обновление запущено... Серверы появятся через 10-30 секунд.'); setTimeout(() => initSources(), 3000); }
-  catch(e){ toast(e.message); }
+async function initSources() { await loadSources(); }
+
+async function loadSources() {
+  const d = state.dark;
+  try {
+    const sources = await api('GET', '/dealer/sources');
+    state.sources = sources;
+    const el = $('#sourcesList');
+    if (!sources.length) {
+      el.innerHTML = '<div class="text-center py-12 ' + (d?'text-gray-500':'text-gray-400') + '"><div class="text-4xl mb-2">🔗</div><div class="text-sm">Нет источников</div></div>';
+      return;
+    }
+    const cardBg  = d ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200';
+    const divider = d ? 'border-gray-800' : 'border-gray-100';
+    const btnGray = d ? 'bg-gray-800' : 'bg-gray-100';
+    const btnEdit = d ? 'bg-indigo-600/20 text-indigo-400' : 'bg-indigo-50 text-indigo-600';
+    const btnDel  = d ? 'bg-red-950/40 text-red-400' : 'bg-red-50 text-red-500';
+    el.innerHTML = sources.map(function(s) {
+      const activeCls = s.is_active ? (d?'bg-emerald-950/50 text-emerald-400':'bg-emerald-100 text-emerald-700') : (d?'bg-red-950/50 text-red-400':'bg-red-100 text-red-600');
+      const lastFetch = s.last_fetched_at ? '<div class="text-xs ' + (d?'text-gray-600':'text-gray-400') + ' mt-1">Обновлён: ' + new Date(s.last_fetched_at).toLocaleString('ru') + '</div>' : '';
+      const cnt = s.servers_count !== undefined ? '<div class="text-xs ' + (d?'text-gray-500':'text-gray-400') + ' mt-0.5">Серверов: ' + s.servers_count + '</div>' : '';
+      return '<div class="' + cardBg + ' border rounded-xl p-4 mb-2.5">'
+        + '<div class="flex items-start justify-between gap-2">'
+        + '<div class="flex-1 min-w-0">'
+        + '<div class="flex items-center gap-2 mb-2"><span class="font-semibold text-sm">' + esc(s.name) + '</span><span class="text-[10px] font-medium ' + activeCls + ' px-2 py-0.5 rounded-full">' + (s.is_active?'Активен':'Откл') + '</span></div>'
+        + '<div class="text-xs ' + (d?'text-gray-400':'text-gray-500') + ' font-mono truncate">' + esc(s.url) + '</div>'
+        + lastFetch + cnt
+        + '</div></div>'
+        + '<div class="flex items-center gap-2 mt-3 pt-3 border-t ' + divider + '">'
+        + '<button onclick="refreshSource(' + s.id + ')" class="' + btnGray + ' text-xs px-3 py-1.5 rounded-lg font-medium">🔄 Обновить</button>'
+        + '<button onclick="editSource(' + s.id + ')" class="' + btnEdit + ' text-xs px-3 py-1.5 rounded-lg font-medium">✏️ Изменить</button>'
+        + '<button onclick="deleteSource(' + s.id + ')" class="' + btnDel + ' text-xs px-3 py-1.5 rounded-lg font-medium ml-auto">🗑️</button>'
+        + '</div></div>';
+    }).join('');
+  } catch(e) { toast(e.message); }
 }
-function openSourceModal() {
-  $('#modal').innerHTML = `<div class="modal active" id="srcModal"><div class="modal-box">
-    <h2 class="text-xl font-bold mb-4">Добавить источник</h2>
-    <form id="srcForm" class="space-y-3">
-      <input name="name" placeholder="Название" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
-      <input name="url" placeholder="URL подписки (https://...)" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
-      <div class="flex justify-end gap-2 mt-4">
-        <button type="button" onclick="document.getElementById('srcModal').remove()" class="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600">Отмена</button>
-        <button class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500">Добавить</button>
-      </div>
-    </form>
-  </div></div>`;
-  $('#srcForm').addEventListener('submit', async e => {
+
+function openSourceModal(src) {
+  const isEdit = !!src;
+  const d = state.dark;
+  const inpCls = 'w-full ' + (d ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-gray-200') + ' border rounded-xl px-4 py-3 outline-none focus:border-indigo-500';
+  const cancelCls = d ? 'bg-gray-700' : 'bg-gray-100';
+  openModal('srcModal',
+    '<div class="flex items-center justify-between mb-5"><h2 class="text-xl font-bold">' + (isEdit?'Изменить':'Новый') + ' источник</h2>' + closeBtnHtml('srcModal') + '</div>'
+    + '<form id="srcForm" class="space-y-3">'
+    + '<div><label class="text-xs ' + (d?'text-gray-400':'text-gray-500') + ' mb-1 block">Название</label><input name="name" value="' + esc(src?src.name:'') + '" class="' + inpCls + '" placeholder="Мой источник"></div>'
+    + '<div><label class="text-xs ' + (d?'text-gray-400':'text-gray-500') + ' mb-1 block">URL подписки</label><input name="url" value="' + esc(src?src.url:'') + '" class="' + inpCls + '" placeholder="https://..."></div>'
+    + '<label class="flex items-center gap-3 py-1 cursor-pointer"><input type="checkbox" name="is_active" ' + (src&&src.is_active===false?'':'checked') + ' class="w-5 h-5 rounded accent-indigo-600"><span class="text-sm">Активен</span></label>'
+    + '<div class="flex gap-2 pt-2"><button type="button" onclick="closeModal(\'srcModal\')" class="' + cancelCls + ' flex-1 py-3 rounded-xl font-medium text-sm">Отмена</button><button class="bg-indigo-600 text-white flex-1 py-3 rounded-xl font-semibold text-sm">' + (isEdit?'Сохранить':'Создать') + '</button></div>'
+    + '</form>'
+  );
+  $('#srcForm')?.addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const body = { name: fd.get('name'), url: fd.get('url'), is_active: !!fd.get('is_active') };
     try {
-      await api('POST','/dealer/sources', { name: fd.get('name'), url: fd.get('url') });
-      document.getElementById('srcModal').remove();
-      initSources();
-      toast('Источник добавлен');
+      if (isEdit) await api('PATCH', '/dealer/sources/' + src.id, body);
+      else await api('POST', '/dealer/sources', body);
+      closeModal('srcModal'); toast(isEdit ? 'Обновлено' : 'Источник добавлен'); loadSources();
     } catch(err) { toast(err.message); }
   });
 }
-async function deleteSource(id) { if(!confirm('Удалить?')) return; try { await api('DELETE',`/dealer/sources/${id}`); initSources(); } catch(e){ toast(e.message); } }
 
-/* ---- Servers ---- */
+async function editSource(id) { const s = state.sources.find(x => x.id === id); if (s) openSourceModal(s); }
+async function deleteSource(id) {
+  if (!confirm('Удалить источник?')) return;
+  try { await api('DELETE', '/dealer/sources/' + id); toast('Удалено'); loadSources(); } catch(e) { toast(e.message); }
+}
+async function refreshSource(id) {
+  try { await api('POST', '/dealer/sources/' + id + '/refresh'); toast('Обновление запущено...'); setTimeout(loadSources, 2000); } catch(e) { toast(e.message); }
+}
+
+/* ============ SERVERS ============ */
 function serversPage() {
-  return layout(`
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold">Серверы</h2>
-      <button onclick="saveOrder()" id="saveOrderBtn" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-sm font-medium">Сохранить порядок</button>
-    </div>
-    <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden ${state.dark?'':'bg-white border-gray-200'}">
-      <table class="w-full text-sm text-left">
-        <thead class="${state.dark?'bg-gray-800/50':'bg-gray-100'} text-gray-400 text-xs uppercase"><tr><th class="px-4 py-3 w-8"></th><th class="px-4 py-3">Хост</th><th class="px-4 py-3">Протокол</th><th class="px-4 py-3">Приоритет</th><th class="px-4 py-3">Кастомное имя</th><th class="px-4 py-3">Статус</th></tr></thead>
-        <tbody id="srvTable" class="divide-y ${state.dark?'divide-gray-800':'divide-gray-100'}"></tbody>
-      </table>
-    </div>
-  `);
+  const d = state.dark;
+  return '<div class="flex items-center justify-between mb-3">'
+    + '<h2 class="text-base sm:text-lg font-semibold">Серверы</h2>'
+    + '<button id="saveOrderBtn" onclick="saveOrder()" class="hidden bg-emerald-600 text-white px-3 py-2 rounded-xl text-sm font-medium">💾 Сохранить</button>'
+    + '</div>'
+    + '<p class="text-xs ' + (d?'text-gray-500':'text-gray-400') + ' mb-3">Серверы из источников. Перетащите для сортировки.</p>'
+    + '<div id="srvList"><div class="text-center py-8 ' + (d?'text-gray-500':'text-gray-400') + '">Загрузка...</div></div>';
 }
+
 async function initServers() {
-  try { const list = await api('GET','/dealer/servers'); state.servers = list; renderServers(); } catch(e){ toast(e.message); }
+  try {
+    const servers = await api('GET', '/dealer/servers');
+    state.servers = servers;
+    renderServers(servers);
+  } catch(e) { toast(e.message); }
 }
-function renderServers() {
-  const tbody = $('#srvTable');
-  if (!state.servers.length) { tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-6 text-center text-gray-500">Нет серверов</td></tr>`; return; }
-  tbody.innerHTML = state.servers.map((s, idx) => `
-    <tr class="table-row" draggable="true" data-id="${s.id}" data-priority="${s.priority}">
-      <td class="px-4 py-3 cursor-move text-gray-500 select-none">⋮⋮</td>
-      <td class="px-4 py-3">${esc(s.host)}:${s.port}</td>
-      <td class="px-4 py-3 uppercase">${s.protocol}</td>
-      <td class="px-4 py-3 priority-cell">${s.priority}</td>
-      <td class="px-4 py-3"><input onchange="updateServer(${s.id},'custom_name',this.value)" value="${esc(s.custom_name||'')}" class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs w-full"></td>
-      <td class="px-4 py-3">
-        <label class="inline-flex items-center gap-2"><input type="checkbox" onchange="updateServer(${s.id},'is_active',this.checked)" ${s.is_active?'checked':''}> Вкл</label>
-      </td>
-    </tr>
-  `).join('');
+
+function renderServers(servers) {
+  const d = state.dark;
+  const el = $('#srvList');
+  if (!servers.length) {
+    el.innerHTML = '<div class="text-center py-12 ' + (d?'text-gray-500':'text-gray-400') + '"><div class="text-4xl mb-2">🖥️</div><div class="text-sm">Нет серверов. Добавьте источники.</div></div>';
+    return;
+  }
+  const cardBg = d ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200';
+  const inpCls = d ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-gray-200';
+  el.innerHTML = servers.map(function(s) {
+    return '<div class="' + cardBg + ' border rounded-xl p-3.5 mb-2 cursor-grab active:cursor-grabbing" draggable="true" data-id="' + s.id + '">'
+      + '<div class="flex items-center gap-3">'
+      + '<div class="' + (d?'text-gray-600':'text-gray-300') + ' text-sm select-none">⠿</div>'
+      + '<div class="flex-1 min-w-0">'
+      + '<div class="flex items-center gap-2 mb-1.5">'
+      + '<span class="text-xs ' + (d?'text-gray-500':'text-gray-400') + ' font-mono truncate">' + esc(s.original_name||'') + '</span>'
+      + '<label class="ml-auto flex items-center gap-1.5 cursor-pointer flex-shrink-0"><input type="checkbox" onchange="updateServer(' + s.id + ',\'is_active\',this.checked)" ' + (s.is_active?'checked':'') + ' class="w-4 h-4 rounded accent-indigo-600"><span class="text-xs ' + (d?'text-gray-400':'text-gray-500') + '">Вкл</span></label>'
+      + '</div>'
+      + '<input onchange="updateServer(' + s.id + ',\'custom_name\',this.value)" value="' + esc(s.custom_name||'') + '" placeholder="Кастомное имя..." class="' + inpCls + ' border rounded-lg px-3 py-1.5 text-xs w-full outline-none focus:border-indigo-500">'
+      + '</div></div></div>';
+  }).join('');
   setupDragAndDrop();
 }
+
 function setupDragAndDrop() {
   let dragged = null;
-  $$('#srvTable tr').forEach(tr => {
-    tr.addEventListener('dragstart', () => { dragged = tr; tr.classList.add('dragging'); });
-    tr.addEventListener('dragend', () => { tr.classList.remove('dragging'); $('#saveOrderBtn').classList.remove('hidden'); });
-    tr.addEventListener('dragover', e => {
+  $$('#srvList [draggable]').forEach(el => {
+    el.addEventListener('dragstart', () => { dragged = el; el.classList.add('dragging'); });
+    el.addEventListener('dragend', () => { el.classList.remove('dragging'); const btn = $('#saveOrderBtn'); if (btn) btn.classList.remove('hidden'); });
+    el.addEventListener('dragover', e => {
       e.preventDefault();
       const after = getDragAfter(e.clientY);
-      const tbody = $('#srvTable');
-      if (after == null) tbody.appendChild(dragged); else tbody.insertBefore(dragged, after);
+      if (after == null) $('#srvList').appendChild(dragged); else $('#srvList').insertBefore(dragged, after);
     });
   });
 }
 function getDragAfter(y) {
-  const rows = [...$$('#srvTable tr:not(.dragging)')];
-  return rows.reduce((closest, child) => {
+  return $$('#srvList [draggable]:not(.dragging)').reduce((closest, child) => {
     const box = child.getBoundingClientRect();
     const offset = y - box.top - box.height / 2;
-    if (offset < 0 && offset > closest.offset) return { offset: offset, element: child };
+    if (offset < 0 && offset > closest.offset) return { offset, element: child };
     return closest;
   }, { offset: Number.NEGATIVE_INFINITY }).element;
 }
 async function saveOrder() {
-  const rows = $$('#srvTable tr');
-  const items = rows.map((tr, idx) => ({ id: parseInt(tr.dataset.id), priority: idx }));
-  try { await api('POST','/dealer/servers/reorder', items); toast('Порядок сохранен'); $('#saveOrderBtn').classList.add('hidden'); initServers(); }
-  catch(e){ toast(e.message); }
+  const items = $$('#srvList [data-id]').map((el, idx) => ({ id: parseInt(el.dataset.id), priority: idx }));
+  try { await api('POST', '/dealer/servers/reorder', items); toast('Порядок сохранён'); const btn = $('#saveOrderBtn'); if(btn) btn.classList.add('hidden'); initServers(); } catch(e) { toast(e.message); }
 }
 async function updateServer(id, field, value) {
-  try { await api('PATCH', `/dealer/servers/${id}`, { [field]: value }); toast('Сохранено'); }
-  catch(e){ toast(e.message); }
+  try { await api('PATCH', '/dealer/servers/' + id, { [field]: value }); toast('Сохранено'); } catch(e) { toast(e.message); }
 }
 
-/* ---- Settings ---- */
+/* ============ SETTINGS ============ */
 function settingsPage() {
-  return layout(`
-    <h2 class="text-lg font-semibold mb-4">Настройки профиля</h2>
-    <form id="settingsForm" class="max-w-xl bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4 ${state.dark?'':'bg-white border-gray-200'}">
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Заголовок подписки</label>
-        <input name="profile_title" value="${esc(state.user.profile_title||'')}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
-      </div>
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Объявление (поддерживается {USERNAME})</label>
-        <textarea name="announcement" rows="3" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">${esc(state.user.announcement||'')}</textarea>
-      </div>
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Шаблон имени сервера</label>
-        <input name="server_name_template" value="${esc(state.user.server_name_template||'')}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2">
-        <div class="text-xs text-gray-500 mt-1">Переменные: {USERNAME}, {NUMBER}</div>
-      </div>
-      <div>
-        <label class="block text-xs text-gray-400 mb-1">Happ API Key (опционально, шифрование подписок)</label>
-        <input name="happ_api_key" type="password" value="${esc(state.user.happ_api_key||'')}" class="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2" placeholder="happ_...">
-      </div>
-      <button class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium">Сохранить</button>
-    </form>
-  `);
+  const d = state.dark;
+  const u = state.user;
+  const cardBg = d ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200';
+  const inpCls = 'w-full ' + (d ? 'bg-gray-800 border-gray-700' : 'bg-gray-100 border-gray-200') + ' border rounded-xl px-4 py-3 outline-none focus:border-indigo-500 transition';
+  const lbl = 'text-xs ' + (d?'text-gray-400':'text-gray-500') + ' mb-1.5 block font-medium';
+  const hint = 'text-xs ' + (d?'text-gray-600':'text-gray-400') + ' mt-1';
+  return '<h2 class="text-base sm:text-lg font-semibold mb-4">Настройки профиля</h2>'
+    + '<div class="' + cardBg + ' border rounded-2xl p-4 sm:p-6">'
+    + '<form id="settingsForm" class="space-y-4">'
+    + '<div><label class="' + lbl + '">Заголовок подписки</label><input name="profile_title" value="' + esc(u.profile_title||'') + '" class="' + inpCls + '" placeholder="Мой VPN"></div>'
+    + '<div><label class="' + lbl + '">Объявление</label><textarea name="announcement" rows="3" class="' + inpCls + ' resize-none">' + esc(u.announcement||'') + '</textarea><p class="' + hint + '">Поддерживается {USERNAME}</p></div>'
+    + '<div><label class="' + lbl + '">Шаблон имени сервера</label><input name="server_name_template" value="' + esc(u.server_name_template||'') + '" class="' + inpCls + '" placeholder="{USERNAME} — {NUMBER}"><p class="' + hint + '">Переменные: {USERNAME}, {NUMBER}</p></div>'
+    + '<div><label class="' + lbl + '">Happ API Key <span class="font-normal opacity-60">(опционально)</span></label><input name="happ_api_key" type="password" value="' + esc(u.happ_api_key||'') + '" class="' + inpCls + '" placeholder="happ_..."></div>'
+    + '<button class="w-full bg-indigo-600 active:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition">Сохранить</button>'
+    + '</form></div>';
 }
+
 async function initSettings() {
-  $('#settingsForm').addEventListener('submit', async e => {
+  $('#settingsForm')?.addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(e.target);
     try {
-      const user = await api('PATCH', '/dealer/me', {
-        profile_title: fd.get('profile_title'),
-        announcement: fd.get('announcement'),
-        server_name_template: fd.get('server_name_template'),
-        happ_api_key: fd.get('happ_api_key'),
-      });
-      state.user = user;
-      toast('Настройки сохранены');
+      const user = await api('PATCH', '/dealer/me', { profile_title: fd.get('profile_title'), announcement: fd.get('announcement'), server_name_template: fd.get('server_name_template'), happ_api_key: fd.get('happ_api_key') });
+      state.user = user; toast('Настройки сохранены ✅');
     } catch(err) { toast(err.message); }
   });
 }
 
-/* ---- Admin ---- */
+/* ============ ADMIN ============ */
 function adminPage() {
-  return layout(`
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg font-semibold">Администрирование</h2>
-    </div>
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" id="adminStats"></div>
-    <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden ${state.dark?'':'bg-white border-gray-200'}">
-      <table class="w-full text-sm text-left">
-        <thead class="${state.dark?'bg-gray-800/50':'bg-gray-100'} text-gray-400 text-xs uppercase"><tr><th class="px-4 py-3">ID</th><th class="px-4 py-3">Логин</th><th class="px-4 py-3">Дилер</th><th class="px-4 py-3">Статус</th><th class="px-4 py-3 text-right">Действия</th></tr></thead>
-        <tbody id="adminUsers" class="divide-y ${state.dark?'divide-gray-800':'divide-gray-100'}"></tbody>
-      </table>
-    </div>
-  `);
+  const d = state.dark;
+  const cardBg = d ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200';
+  const hdrBg  = d ? 'bg-gray-800/50 border-gray-800' : 'bg-gray-50 border-gray-200';
+  const divider = d ? 'divide-gray-800' : 'divide-gray-100';
+  return '<h2 class="text-base sm:text-lg font-semibold mb-4">Администрирование</h2>'
+    + '<div class="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4" id="adminStats"></div>'
+    + '<div class="' + cardBg + ' border rounded-2xl overflow-hidden">'
+    + '<div class="' + hdrBg + ' border-b px-4 py-2.5"><span class="text-xs font-semibold ' + (d?'text-gray-400':'text-gray-500') + ' uppercase tracking-wider">Пользователи</span></div>'
+    + '<div id="adminUsers" class="divide-y ' + divider + '"></div>'
+    + '</div>';
 }
+
 async function initAdmin() {
+  const d = state.dark;
+  const cardBg = d ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200';
   try {
-    const stats = await api('GET','/admin/stats');
-    $('#adminStats').innerHTML = `
-      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Пользователей</div><div class="text-xl font-bold">${stats.total_users}</div></div>
-      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Дилеров</div><div class="text-xl font-bold">${stats.total_dealers}</div></div>
-      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Ключей</div><div class="text-xl font-bold">${stats.total_keys}</div></div>
-      <div class="bg-gray-900 border border-gray-800 rounded-lg p-3 ${state.dark?'':'bg-white border-gray-200'}"><div class="text-xs text-gray-500">Серверов</div><div class="text-xl font-bold">${stats.total_servers}</div></div>
-    `;
-  } catch(e){}
+    const stats = await api('GET', '/admin/stats');
+    const card = (lbl, val) => '<div class="' + cardBg + ' border rounded-xl p-3"><div class="text-xs ' + (d?'text-gray-500':'text-gray-400') + ' mb-1">' + lbl + '</div><div class="text-2xl font-bold">' + val + '</div></div>';
+    $('#adminStats').innerHTML = card('Пользователей', stats.total_users) + card('Дилеров', stats.total_dealers) + card('Ключей', stats.total_keys) + card('Серверов', stats.total_servers);
+  } catch(e) {}
   try {
-    const users = await api('GET','/admin/users');
-    $('#adminUsers').innerHTML = users.map(u => `
-      <tr class="table-row">
-        <td class="px-4 py-3">${u.id}</td>
-        <td class="px-4 py-3">${esc(u.username)}</td>
-        <td class="px-4 py-3">${u.is_dealer?'✅':'—'}</td>
-        <td class="px-4 py-3">${u.is_active?'<span class="text-emerald-400">Активен</span>':'<span class="text-red-400">Отключен</span>'}</td>
-        <td class="px-4 py-3 text-right">
-          <button onclick="toggleUser(${u.id})" class="text-xs text-indigo-400 mr-2">${u.is_active?'Блок':'Актив'}</button>
-          <button onclick="deleteUser(${u.id})" class="text-xs text-red-400">Удал</button>
-        </td>
-      </tr>
-    `).join('');
-  } catch(e){ toast(e.message); }
+    const users = await api('GET', '/admin/users');
+    const avatarBg = d ? 'bg-gray-700' : 'bg-gray-200';
+    const btnGray  = d ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-100';
+    const btnDel   = d ? 'bg-red-950/40 text-red-400' : 'bg-red-50 text-red-500';
+    $('#adminUsers').innerHTML = users.map(function(u) {
+      const statusHtml = u.is_active ? '<span class="text-emerald-400">Активен</span>' : '<span class="text-red-400">Заблок</span>';
+      return '<div class="px-4 py-3 flex items-center gap-3">'
+        + '<div class="w-8 h-8 rounded-full ' + avatarBg + ' flex items-center justify-center text-sm font-bold flex-shrink-0">' + esc(u.username[0].toUpperCase()) + '</div>'
+        + '<div class="flex-1 min-w-0"><div class="text-sm font-medium">' + esc(u.username) + (u.is_admin?' <span class="text-xs text-yellow-400">👑</span>':'') + '</div>'
+        + '<div class="text-xs ' + (d?'text-gray-500':'text-gray-400') + '">' + (u.is_dealer?'Дилер · ':'') + statusHtml + '</div></div>'
+        + '<div class="flex gap-1.5">'
+        + '<button onclick="toggleUser(' + u.id + ')" class="' + btnGray + ' text-xs px-2.5 py-1.5 rounded-lg">' + (u.is_active?'Блок':'Актив') + '</button>'
+        + '<button onclick="deleteUser(' + u.id + ')" class="' + btnDel + ' text-xs px-2.5 py-1.5 rounded-lg">🗑️</button>'
+        + '</div></div>';
+    }).join('');
+  } catch(e) { toast(e.message); }
 }
-async function toggleUser(id) {
-  try { await api('PATCH', `/admin/users/${id}/toggle`); initAdmin(); toast('Статус изменен'); } catch(e){ toast(e.message); }
-}
+
+async function toggleUser(id) { try { await api('PATCH', '/admin/users/' + id + '/toggle'); initAdmin(); toast('Статус изменён'); } catch(e) { toast(e.message); } }
 async function deleteUser(id) {
   if (!confirm('Удалить пользователя?')) return;
-  try { await api('DELETE', `/admin/users/${id}`); initAdmin(); toast('Удалено'); } catch(e){ toast(e.message); }
+  try { await api('DELETE', '/admin/users/' + id); initAdmin(); toast('Удалено'); } catch(e) { toast(e.message); }
 }
 
 /* ---- Utils ---- */
-function logout() {
-  api('POST','/auth/logout').then(() => { state.user = null; navigate('login'); }).catch(() => { state.user = null; navigate('login'); });
-}
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+function logout() { api('POST', '/auth/logout').finally(() => { state.user = null; navigate('login'); }); }
+
 function copyText(t) {
-  // Try modern Clipboard API (requires HTTPS)
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(t).then(() => {
-      toast('Скопировано');
-    }).catch(() => {
-      // Fallback if permission denied or insecure context
-      fallbackCopy(t);
-    });
-  } else {
-    // Fallback for HTTP or older browsers
-    fallbackCopy(t);
+    navigator.clipboard.writeText(t).then(() => toast('Скопировано ✓')).catch(() => fallbackCopy(t));
   }
+function wrapUrl(url) {
+  try {
+    var u = new URL(url);
+    return "https://www.google.com" + u.pathname + "#acar?resolve-address=google.com&host=" + u.hostname;
+  } catch(e) { return url; }
+}
+ else { fallbackCopy(t); }
 }
 function fallbackCopy(text) {
   const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.style.position = 'fixed';
-  ta.style.left = '-9999px';
-  ta.style.top = '-9999px';
-  document.body.appendChild(ta);
-  ta.select();
-  try {
-    document.execCommand('copy');
-    toast('Скопировано');
-  } catch(e) {
-    toast('Не удалось скопировать. Выделите вручную.');
-  }
+  ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); toast('Скопировано ✓'); } catch(e) { toast('Выделите вручную'); }
   document.body.removeChild(ta);
 }
 function toast(msg) {
   const el = document.createElement('div');
-  el.className = 'fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg border border-gray-700 z-50';
-  el.textContent = msg; document.body.appendChild(el);
-  setTimeout(() => el.remove(), 2500);
+  el.className = 'bg-gray-800 text-white text-sm px-4 py-2.5 rounded-xl shadow-2xl border border-gray-700 mb-2';
+  el.style.cssText = 'opacity:0;transition:opacity .2s';
+  el.textContent = msg;
+  const wrap = document.getElementById('toastWrap');
+  if (wrap) wrap.appendChild(el);
+  requestAnimationFrame(() => { el.style.opacity = '1'; });
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 200); }, 2500);
 }
 
+/* ---- Init ---- */
 async function init() {
   loadTheme();
-  try {
-    const user = await api('GET','/dealer/me');
-    state.user = user; navigate('dashboard');
-  } catch(e) { render(); }
+  try { const user = await api('GET', '/dealer/me'); state.user = user; navigate('dashboard'); }
+  catch(e) { render(); }
 }
-
-/* ---- Events ---- */
-document.addEventListener('submit', async e => {
-  if (e.target.id === 'loginForm') {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    try {
-      await api('POST','/auth/login', { username: fd.get('username'), password: fd.get('password') });
-      const user = await api('GET','/dealer/me');
-      state.user = user; navigate('dashboard');
-    } catch(err) { const el=$('#loginError'); el.textContent=err.message; el.classList.remove('hidden'); }
-  }
-});
-
 init();
 </script>
 </body>
