@@ -2,7 +2,7 @@ import time
 import logging
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
-from app.redis_client import get_redis, _redis_or_fallback, get_real_ip
+from app.redis_client import _redis_or_fallback, get_real_ip
 from app.config import get_settings
 
 logger = logging.getLogger("acar.middleware")

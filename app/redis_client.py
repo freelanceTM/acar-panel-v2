@@ -1,13 +1,11 @@
 import redis
 import json
-import threading
 from datetime import datetime
 from app.config import get_settings
 
 settings = get_settings()
 
 _pool = None
-_lock = threading.Lock()
 
 # In-memory fallback when Redis is unavailable
 _fallback_cache = {}
@@ -45,7 +43,7 @@ def cache_device_hit_structured(token: str, ip: str, user_agent: str, hwid: str 
     """
     r, fallback = _redis_or_fallback()
     device_key = f"dev_struct:{token}"
-    device_id = _device_id(ip)  # Только IP!
+    device_id = _device_id(ip, hwid)
     now = datetime.utcnow().isoformat()
     
     if fallback:
@@ -66,7 +64,19 @@ def cache_device_hit_structured(token: str, ip: str, user_agent: str, hwid: str 
     }, ensure_ascii=False)
     r.hset(device_key, device_id, payload)
     r.expire(device_key, ttl_seconds)
-    return r.hlen(device_key)
+    # Считаем только активные устройства (обновлены за последние 5 мин)
+    from datetime import timedelta
+    cutoff = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
+    all_devices = r.hgetall(device_key)
+    active = 0
+    for dev_id, dev_payload in all_devices.items():
+        try:
+            dev_data = json.loads(dev_payload)
+            if dev_data.get("last_seen", "") >= cutoff:
+                active += 1
+        except:
+            active += 1
+    return active
 
 def get_device_structured_list(token: str) -> list[dict]:
     r, fallback = _redis_or_fallback()
@@ -102,26 +112,6 @@ def clear_device_limit(token: str):
     r.delete(f"dev_limit:{token}")
     r.delete(f"sub_cache:{token}")
 
-# --- Legacy simple set-based (for compat) ---
-
-def cache_device_hit(token: str, ip: str, user_agent: str, ttl_seconds: int = 900):
-    r, fallback = _redis_or_fallback()
-    if fallback:
-        return cache_device_hit_structured(token, ip, user_agent, "", ttl_seconds)
-    key = f"dev_limit:{token}"
-    val = f"{ip}|{user_agent}"
-    r.sadd(key, val)
-    r.expire(key, ttl_seconds)
-    return r.scard(key)
-
-def get_device_count(token: str) -> int:
-    r, fallback = _redis_or_fallback()
-    if fallback:
-        return len(_fallback_devices.get(f"dev_struct:{token}", {}))
-    key = f"dev_limit:{token}"
-    return r.scard(key)
-
-# --- Subscription cache ---
 
 def cache_subscription(token: str, content: str, ttl_seconds: int = 600):
     r, fallback = _redis_or_fallback()
@@ -163,13 +153,11 @@ def get_real_ip(request=None) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _device_id(ip: str) -> str:
-    """Уникальный ID устройства на основе IP-адреса.
+def _device_id(ip: str, hwid: str = "") -> str:
+    """Уникальный ID устройства.
     
-    IP — самый стабильный идентификатор:
-    - User-Agent меняется при обновлении VPN-клиента
-    - HWID не всегда передаётся
-    - Только IP остаётся постоянным для одного устройства
+    Приоритет: HWID (аппаратный ID) > IP-адрес (fallback)
     """
     import hashlib
-    return hashlib.sha256(ip.encode()).hexdigest()[:16]
+    identifier = hwid.strip() if hwid and hwid.strip() else ip
+    return hashlib.sha256(identifier.encode()).hexdigest()[:16]

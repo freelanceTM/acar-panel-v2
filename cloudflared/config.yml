@@ -1,0 +1,4 @@
+ingress:
+  - hostname: acar-panel.acarn1.workers.dev
+    service: http://localhost:80
+  - service: http_status:404

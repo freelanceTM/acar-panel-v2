@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.middleware import DDoSProtectionMiddleware
@@ -61,11 +62,23 @@ def bootstrap_admin():
 
 bootstrap_admin()
 
+
+@asynccontextmanager
+async def lifespan(app):
+    logger.info(
+        f"{settings.APP_NAME} started | DB: {settings.DATABASE_URL} | "
+        f"Redis: {settings.REDIS_URL}"
+    )
+    yield
+    logger.info("Açar🔐 shutting down...")
+
+
 app = FastAPI(
     title=settings.APP_NAME,
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
+    lifespan=lifespan,
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -98,19 +111,6 @@ def root():
     if os.path.exists(os.path.join(frontend_path, "index.html")):
         return FileResponse(os.path.join(frontend_path, "index.html"))
     return {"message": "Açar🔐 API is running"}
-
-
-@app.on_event("startup")
-async def startup_event():
-    logger.info(
-        f"{settings.APP_NAME} started | DB: {settings.DATABASE_URL} | "
-        f"Redis: {settings.REDIS_URL}"
-    )
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("Açar🔐 shutting down...")
 
 
 # Admin OpenAPI unlock (optional guard) — disabled in production

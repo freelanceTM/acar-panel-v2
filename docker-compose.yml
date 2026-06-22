@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   app:
     build: .
@@ -11,12 +9,13 @@ services:
     volumes:
       - ./data:/app/data
       - ./app:/app/app
+      - ./frontend:/app/frontend:ro
     depends_on:
       - redis
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "python3", "/app/healthcheck.py"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -50,13 +49,9 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: acar_tunnel
     restart: unless-stopped
-    command: tunnel --no-autoupdate --url http://app:8000
+    command: tunnel --no-autoupdate --url http://nginx:80
     depends_on:
-      - app
-    # Для постоянного URL — раскомментируйте и укажите ваш токен:
-    # environment:
-    #   - TUNNEL_TOKEN=ваш_токен_здесь
-    # command: tunnel run
+      - nginx
 
   nginx:
     image: nginx:alpine

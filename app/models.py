@@ -26,6 +26,8 @@ class User(Base):
     announcement = Column(Text, default="")
     server_name_template = Column(String, default="{USERNAME} | Server {NUMBER}")
     happ_api_key = Column(String, default="")
+    vless_template = Column(String, default="")
+    bypass_domain = Column(String, default="")
     
     unlimited_sources = relationship("UnlimitedSource", back_populates="owner", cascade="all, delete-orphan")
     client_keys = relationship("ClientKey", back_populates="dealer", cascade="all, delete-orphan")
@@ -40,6 +42,7 @@ class UnlimitedSource(Base):
     is_active = Column(Boolean, default=True)
     last_fetched_at = Column(DateTime(timezone=True), nullable=True)
     cached_config = Column(Text, default="")  # Raw cached config text
+    vless_template = Column(String, default="") # New field for source-specific VLESS key
     
     owner = relationship("User", back_populates="unlimited_sources")
     servers = relationship("ServerConfig", back_populates="source", cascade="all, delete-orphan")
@@ -74,3 +77,4 @@ class ClientKey(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     dealer = relationship("User", back_populates="client_keys")
+

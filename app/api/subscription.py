@@ -20,8 +20,22 @@ from app.config import get_settings
 router = APIRouter(tags=["subscription"])
 settings = get_settings()
 
+
+def _get_admin(db):
+    return db.query(User).filter(User.is_admin == True).first()
+
+
+def _get_all_sources(dealer, db):
+    admin_ids = [u.id for u in db.query(User).filter(User.is_admin == True).all()]
+    owner_ids = list(set([dealer.id] + admin_ids))
+    return db.query(UnlimitedSource).filter(
+        UnlimitedSource.owner_id.in_(owner_ids),
+        UnlimitedSource.is_active == True
+    ).all()
+
+
 @router.get("/sub/{token}")
-@limiter.limit("60/minute")
+@limiter.limit("120/minute")
 def get_subscription(
     token: str,
     request: Request,
@@ -31,114 +45,120 @@ def get_subscription(
 ):
     client_key = db.query(ClientKey).filter(ClientKey.token == token).first()
     if not client_key:
-        raise HTTPException(status_code=404, detail="Not found")
-
-    # Check expiration
-    if client_key.expires_at and datetime.utcnow() > client_key.expires_at:
-        return _blocked_response("🔒 Заблокировано", "Ключ просрочен. Обратитесь к продавцу.")
+        raise HTTPException(status_code=404, detail="Key not found")
 
     if not client_key.is_active:
-        return _blocked_response("🔒 Заблокировано", "Ключ отключен дилером.")
+        return _blocked_response("\U0001f512 Доступ ограничен", "Ключ отключен или заблокирован.")
+
+    if client_key.expires_at and datetime.utcnow() > client_key.expires_at:
+        return _blocked_response("\U0001f512 Срок истек", "Подписка закончилась. Продлите у продавца.")
 
     dealer = db.query(User).filter(User.id == client_key.dealer_id).first()
     if not dealer or not dealer.is_active:
-        return _blocked_response("🔒 Заблокировано", "Дилер заблокирован.")
+        return _blocked_response("\U0001f512 Ошибка", "Аккаунт дилера недоступен.")
 
-    # HWID check
-    if hwid and client_key.hwid:
-        if hwid != client_key.hwid:
-            return _blocked_response("🔒 Привязка устройства", "HWID не совпадает. Сбросьте привязку в панели.")
-    elif hwid and not client_key.hwid:
-        client_key.hwid = hwid
-        db.commit()
+    admin = _get_admin(db)
 
-    # Device limit check (structured)
+    # Дилер ВСЕГДА использует настройки админа
+    if dealer.is_admin:
+        profile_title = dealer.profile_title or "Acar"
+        announcement = dealer.announcement or ""
+        vless_template = dealer.vless_template or ""
+        happ_api_key = dealer.happ_api_key or ""
+    else:
+        profile_title = (admin.profile_title if admin else "") or "Acar"
+        announcement = (admin.announcement if admin else "") or ""
+        vless_template = (admin.vless_template if admin else "") or ""
+        happ_api_key = (admin.happ_api_key if admin else "") or ""
+
+    # Device Limit
     ip = get_real_ip(request)
     count = cache_device_hit_structured(
         token, ip, user_agent, hwid, settings.DEVICE_LIMIT_TTL_MINUTES * 60
     )
     if count > client_key.device_limit:
-        return _blocked_response(
-            "🔒 Превышен лимит устройств",
-            f"Лимит: {client_key.device_limit} устройств. Сбросьте привязки в панели."
-        )
+        return _blocked_response("\U0001f512 Лимит", "Превышено кол-во устройств ({}).".format(client_key.device_limit))
 
-    # Check cache
+    # Cache
     cached = get_cached_subscription(token)
     if cached:
-        return _build_response(cached, dealer.profile_title, dealer.happ_api_key)
+        return _build_response(cached, profile_title, happ_api_key)
 
-    # Build config from cached servers
-    sources = db.query(UnlimitedSource).filter(
-        UnlimitedSource.owner_id == dealer.id,
-        UnlimitedSource.is_active == True
-    ).all()
-
+    # Build lines
     all_lines = []
-    for source in sources:
+
+    # VLESS templates
+    templates = set()
+    if vless_template:
+        templates.add(vless_template.strip())
+
+    sources = _get_all_sources(dealer, db)
+    for src in sources:
+        if src.vless_template:
+            templates.add(src.vless_template.strip())
+
+    for tmpl in templates:
+        clean_tmpl = tmpl.split('#')[0]
+        all_lines.append("{}#{}".format(clean_tmpl, client_key.client_name))
+
+    # Servers from all sources
+    for src in sources:
         servers = db.query(ServerConfig).filter(
-            ServerConfig.source_id == source.id,
+            ServerConfig.source_id == src.id,
             ServerConfig.is_active == True
-        ).order_by(ServerConfig.priority, ServerConfig.id).all()
+        ).order_by(ServerConfig.priority).all()
         for srv in servers:
-            display_name = srv.custom_name or srv.server_name or f"Server {srv.id}"
-            display_name = display_name.replace("{USERNAME}", client_key.client_name)
-            link = srv.raw_link
-            # Replace remark in link if it exists
-            if "#" in link:
-                body, old_tag = link.rsplit("#", 1)
-                link = f"{body}#{display_name}"
-            else:
-                link = f"{link}#{display_name}"
-            all_lines.append(link)
+            display_name = (srv.custom_name or srv.server_name or "Server").replace("{USERNAME}", client_key.client_name)
+            link_body = srv.raw_link.split('#')[0]
+            all_lines.append("{}#{}".format(link_body, display_name))
 
-    # Build header and announcement
-    profile_title = (dealer.profile_title or "Açar🔐").replace("{USERNAME}", client_key.client_name)
-    announcement = (dealer.announcement or "").replace("{USERNAME}", client_key.client_name)
+    # Deduplicate
+    seen = set()
+    final_lines = []
+    for line in all_lines:
+        if line not in seen:
+            final_lines.append(line)
+            seen.add(line)
 
-    header_lines = [f"#profile-title: base64:{_b64(profile_title)}"]
+    profile_title = profile_title.replace("{USERNAME}", client_key.client_name)
+    announcement = announcement.replace("{USERNAME}", client_key.client_name)
+
+    header_lines = ["#profile-title: base64:{}".format(_b64(profile_title))]
     if announcement:
-        header_lines.append(f"#announce: base64:{_b64(announcement)}")
+        header_lines.append("#announce: base64:{}".format(_b64(announcement)))
 
-    body = "\n".join(header_lines + all_lines)
-
-    # Cache it (raw, before encryption, to avoid re-encrypting every request)
+    body = "\n".join(header_lines + final_lines)
     cache_subscription(token, body, settings.SUBSCRIPTION_CACHE_TTL_MINUTES * 60)
 
-    return _build_response(body, profile_title, dealer.happ_api_key)
+    return _build_response(body, profile_title, happ_api_key)
 
-def _b64(text: str) -> str:
-    return base64.b64encode(text.encode("utf-8")).decode("utf-8")
 
-def _sanitize_header(val: str) -> str:
-    # HTTP headers must be latin-1; strip non-ASCII or replace with ?
-    return val.encode("ascii", "ignore").decode("ascii")
+def _b64(t):
+    return base64.b64encode(t.encode("utf-8")).decode("utf-8")
 
-def _build_response(body: str, profile_title: str, happ_api_key: str = ""):
+
+def _build_response(body, title, key=""):
     content = body
-    # If Happ API key is configured, attempt encryption
-    if happ_api_key:
-        encrypted = encrypt_subscription(body, happ_api_key)
+    if key:
+        encrypted = encrypt_subscription(body, key)
         if encrypted:
             content = encrypted
-    safe_title = _sanitize_header(profile_title)
+
+    safe_title = title.encode("ascii", "ignore").decode("ascii") or "sub"
     return Response(
         content=base64.b64encode(content.encode("utf-8")).decode("utf-8"),
         media_type="text/plain",
         headers={
-            "content-disposition": f'attachment; filename="{safe_title}.txt"',
+            "content-disposition": 'attachment; filename="{}.txt"'.format(safe_title),
             "profile-title": safe_title,
         }
     )
 
-def _blocked_response(title: str, message: str):
-    body = f"#profile-title: base64:{_b64(title)}\n#announce: base64:{_b64(message)}\n"
-    safe_title = _sanitize_header(title)
+
+def _blocked_response(title, msg):
+    body = "#profile-title: base64:{}\n#announce: base64:{}\n".format(_b64(title), _b64(msg))
     return Response(
         content=base64.b64encode(body.encode("utf-8")).decode("utf-8"),
         media_type="text/plain",
-        headers={
-            "content-disposition": 'attachment; filename="blocked.txt"',
-            "profile-title": safe_title,
-        }
+        headers={"profile-title": "Blocked"}
     )
