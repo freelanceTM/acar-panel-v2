@@ -100,6 +100,8 @@ class ClientKeyOut(ClientKeyBase):
     token: str
     hwid: str
     created_at: datetime
+    last_seen_at: Optional[datetime] = None
+    last_ip: Optional[str] = ""
     class Config:
         from_attributes = True
 

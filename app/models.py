@@ -75,6 +75,8 @@ class ClientKey(Base):
     is_active = Column(Boolean, default=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
+    last_ip = Column(String, default="")
     
     dealer = relationship("User", back_populates="client_keys")
 

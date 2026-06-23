@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours (было 7 дней)
-    SUBSCRIPTION_CACHE_TTL_MINUTES: int = 10
+    SUBSCRIPTION_CACHE_TTL_MINUTES: int = 2
     DEVICE_LIMIT_TTL_MINUTES: int = 15
     MAX_LOGIN_ATTEMPTS: int = 5
     LOGIN_RATE_LIMIT_WINDOW: int = 600  # 10 minutes

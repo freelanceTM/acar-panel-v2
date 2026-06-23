@@ -77,9 +77,35 @@ def delete_user(user_id: int, db: Session = Depends(get_db), admin: User = Depen
         raise HTTPException(404, "User not found")
     if user.id == admin.id:
         raise HTTPException(400, "Cannot delete yourself")
+    # Удаляем все ключи пользователя и чистим кэш
+    from app.redis_client import clear_device_limit, delete_subscription_cache
+    keys = db.query(ClientKey).filter(ClientKey.dealer_id == user.id).all()
+    for k in keys:
+        clear_device_limit(k.token)
+        delete_subscription_cache(k.token)
+        db.delete(k)
     db.delete(user)
     db.commit()
-    return {"detail": "Deleted"}
+    return {"detail": "Deleted", "keys_deleted": len(keys)}
+
+@router.get("/user-stats")
+def user_stats(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    result = []
+    for u in users:
+        total = db.query(func.count(ClientKey.id)).filter(ClientKey.dealer_id == u.id).scalar()
+        active = db.query(func.count(ClientKey.id)).filter(ClientKey.dealer_id == u.id, ClientKey.is_active == True).scalar()
+        result.append({
+            "id": u.id,
+            "username": u.username,
+            "is_admin": u.is_admin,
+            "is_dealer": u.is_dealer,
+            "is_active": u.is_active,
+            "total_keys": total,
+            "active_keys": active,
+        })
+    return result
+
 
 @router.get("/stats")
 def admin_stats(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):

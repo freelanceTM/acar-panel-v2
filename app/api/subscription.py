@@ -34,6 +34,7 @@ def _get_all_sources(dealer, db):
     ).all()
 
 
+
 @router.get("/sub/{token}")
 @limiter.limit("120/minute")
 def get_subscription(
@@ -45,7 +46,7 @@ def get_subscription(
 ):
     client_key = db.query(ClientKey).filter(ClientKey.token == token).first()
     if not client_key:
-        raise HTTPException(status_code=404, detail="Key not found")
+        return _blocked_response("🔒 Ключ удалён", "Этот ключ был удалён. Обратитесь к продавцу.")
 
     if not client_key.is_active:
         return _blocked_response("\U0001f512 Доступ ограничен", "Ключ отключен или заблокирован.")
@@ -70,6 +71,12 @@ def get_subscription(
         announcement = (admin.announcement if admin else "") or ""
         vless_template = (admin.vless_template if admin else "") or ""
         happ_api_key = (admin.happ_api_key if admin else "") or ""
+
+    # Track last seen
+    ip = get_real_ip(request)
+    client_key.last_seen_at = datetime.utcnow()
+    client_key.last_ip = ip
+    db.commit()
 
     # Device Limit
     ip = get_real_ip(request)
@@ -119,6 +126,27 @@ def get_subscription(
         if line not in seen:
             final_lines.append(line)
             seen.add(line)
+
+    # Информационный сервер-заглушка (показывает срок действия)
+    if client_key.expires_at:
+        exp = client_key.expires_at
+        now = datetime.utcnow()
+        if exp > now:
+            days_left = (exp - now).days
+            hours_left = int((exp - now).total_seconds() / 3600)
+            if days_left > 0:
+                exp_text = "{} g".format(days_left)
+            else:
+                exp_text = "{}s".format(hours_left)
+            info_tag = "⏱ {} | {}".format(exp_text, client_key.client_name)
+        else:
+            info_tag = "🔒 Muddeti tugagan".format(client_key.client_name)
+    else:
+        info_tag = "⏱ Limitsiz | {}".format(client_key.client_name)
+
+    # VLESS заглушка — показывает срок действия в Happ/V2RayNG
+    dummy_line = "vless://00000000-0000-0000-0000-000000000000@google.com:443?security=tls&type=ws&host=time.google.com&sni=google.com&path=/time&encryption=none#{}".format(info_tag)
+    final_lines.insert(0, dummy_line)
 
     profile_title = profile_title.replace("{USERNAME}", client_key.client_name)
     announcement = announcement.replace("{USERNAME}", client_key.client_name)
